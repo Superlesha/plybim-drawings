@@ -2760,6 +2760,23 @@ RH.register('labels', function (ctx) {
     }
 
     const items = clusterVisible(visible);
+    if (ctx.asset && ctx.asset.stage_manifest) {
+      // A builder needs room to see the joint behind each callout. Dense roof
+      // framing can otherwise fill a phone with dozens of labels at once.
+      // The part card and code search still expose every individual code.
+      const limit = document.documentElement.dataset.layout === 'narrow' ? 14 : 30;
+      items.sort((a, b) => b.priority - a.priority);
+      const perCode = new Map();
+      const diverse = [];
+      for (const item of items) {
+        const count = perCode.get(item.code) || 0;
+        if (count >= 2) continue;
+        diverse.push(item);
+        perCode.set(item.code, count + 1);
+        if (diverse.length === limit) break;
+      }
+      items.splice(0, items.length, ...diverse);
+    }
     hiddenByLayoutCount = placeItems(items);
     stamp('layout');
     phase = 'commit';
@@ -6668,7 +6685,16 @@ RH.register('stages', function (ctx) {
       row.textContent = (i + 1) + '. ' + s.name + ' · ' + s.parts.length +
         (s.provisionalCount ? ' · ' + s.provisionalCount + ' предварительно' : '');
       if (s.prerequisites.length) row.title = 'Порядок просмотра после: ' + s.prerequisites.join(', ');
-      row.addEventListener('click', () => goToMainStep(i));
+      row.addEventListener('click', () => {
+        goToMainStep(i);
+        // On a phone the stage list sits deep inside the bottom sheet. After
+        // choosing a row, bring the current stage name and system switches
+        // back into view without resetting the list's own scroll position.
+        if (document.documentElement.dataset.layout === 'narrow') {
+          panelRoot.scrollTop = 0;
+          ctx.ui.panel.scrollTop = 0;
+        }
+      });
       stageList.appendChild(row);
     });
   }

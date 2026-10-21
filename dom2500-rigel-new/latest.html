@@ -318,14 +318,16 @@
   /* --- карточка детали ---------------------------------------------------- */
   .rh-card{color:var(--ink)}
   .rh-card__code{font:600 32px/1.1 var(--font-code);letter-spacing:.02em;font-variant-numeric:slashed-zero}
+  .rh-purchase-note{margin:var(--s-2) 0;padding:var(--s-2);border-left:2px solid var(--stamp);background:var(--surface-2);color:var(--ink);font:500 12px/1.35 var(--font-ui)}
   .rh-kv{display:grid;grid-template-columns:auto 1fr;gap:2px var(--s-3);margin:var(--s-2) 0}
   .rh-chain{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-1);font-size:13px;color:var(--ink-2)}
   .rh-chain__link{color:var(--stamp);cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;background:none;border:0;padding:2px 0}
   @media (hover:hover){ .rh-chain__link:hover{text-decoration-thickness:2px} }
   /* --- этапы: полоса и кромка --------------------------------------------- */
   .rh-stepper{display:flex;align-items:center;gap:var(--s-2);min-height:48px}
-  .rh-stepper > span:not(.rh-count){flex:1;min-width:0;font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rh-stepper > span:not(.rh-count){flex:1;min-width:0;font-size:16px;font-weight:600;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
   .rh-stage-meta{margin:0;color:var(--ink-2);font-size:13px;line-height:1.45}
+  .rh-stage-review{margin:var(--s-2) 0 0;padding-left:var(--s-2);border-left:2px solid var(--stamp);color:var(--ink-2);font-size:12px;line-height:1.35}
   .rh-stage-mode{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-2);margin:var(--s-2) 0 var(--s-3)}
   .rh-stage-mode > .rh-btn{min-width:0;padding-inline:var(--s-2);font-size:13px}
   .rh-stage-mode > [data-rh-action="stages.modeGhost"]{grid-column:1/-1}
@@ -6085,7 +6087,9 @@ RH.register('partpage', function (ctx) {
   var codeEl = el('h1', 'rh-card__code');
   codeEl.id = 'rh-partpage-code';
   var nameEl = el('div', 'rh-card__name');
-  titleBox.append(codeEl, nameEl);
+  var envelopeNoteEl = el('p', 'rh-purchase-note');
+  envelopeNoteEl.hidden = true;
+  titleBox.append(codeEl, nameEl, envelopeNoteEl);
   var actions = el('div', 'rh-partpage__actions');
   function button(label, action, cls) {
     var b = el('button', cls || 'rh-btn', label);
@@ -6142,6 +6146,9 @@ RH.register('partpage', function (ctx) {
     shownCode = part.data.code;
     codeEl.textContent = part.data.code;
     nameEl.textContent = [description(part.data.name), drawing && scaleLabel(drawing.scale)].filter(Boolean).join(' · ');
+    var envelopeNote = RH.envelopeModelNote(part.data.code);
+    envelopeNoteEl.textContent = envelopeNote;
+    envelopeNoteEl.hidden = !envelopeNote;
     fillPassport(passport, info.rows);
     fillStamp(part, drawing);
     last = { part: part, drawing: drawing, counts: info.counts };
@@ -6527,6 +6534,14 @@ RH.register('stages', function (ctx) {
   const stepMetaEl = document.createElement('p');
   stepMetaEl.className = 'rh-stage-meta';
   panelRoot.appendChild(stepMetaEl);
+  if (manifest && manifest.engineeringErectionApproval !== true &&
+      manifest.esStageCorrectionSource?.engineeringErectionApproval !== true) {
+    const reviewNote = document.createElement('p');
+    reviewNote.className = 'rh-stage-review';
+    reviewNote.textContent = 'Порядок монтажа: на проверке';
+    reviewNote.title = 'Опирание и крепёж узлов также требуют проверки';
+    panelRoot.insertBefore(reviewNote, stepMetaEl);
+  }
 
   const strataEl = document.createElement('div');
   strataEl.className = 'rh-strata';
@@ -6631,7 +6646,7 @@ RH.register('stages', function (ctx) {
     systemRows.set(id, button);
   }
   if (extraGrid.children.length) systemsEl.appendChild(extraSystems);
-  if (systemRows.size) panelRoot.insertBefore(systemsEl, modeControls);
+  if (systemRows.size) panelRoot.insertBefore(systemsEl, stepMetaEl);
   panelRoot.appendChild(stageList);
 
   const animateBtn = document.createElement('button');
@@ -9347,6 +9362,9 @@ function clearState(owner) {
 
 // --- detail card (T13b: .rh-card; тело пересобирается, слот действий живёт) --
 const $detailBody = document.getElementById('detail-body');
+const ENVELOPE_MODEL_CODES = new Set(['WIN01', 'WIN02', 'WIN03', 'WIN04', 'WIN05', 'WIN06', 'FNP', 'DPK01']);
+window.RH.envelopeModelNote = (code) => ENVELOPE_MODEL_CODES.has(String(code || '').toUpperCase())
+  ? 'Габаритная модель, комплектация по заказу' : '';
 
 function addRow(dl, key, value) {
   if (value === undefined || value === null || value === '') return;
@@ -9373,6 +9391,13 @@ function showDetail(part) {
     name.className = 'rh-card__name';
     name.textContent = data.name;
     $detailBody.appendChild(name);
+  }
+  const envelopeNote = window.RH.envelopeModelNote(data.code);
+  if (envelopeNote) {
+    const note = document.createElement('p');
+    note.className = 'rh-purchase-note';
+    note.textContent = envelopeNote;
+    $detailBody.appendChild(note);
   }
   const dl = document.createElement('dl');
   dl.className = 'rh-kv';

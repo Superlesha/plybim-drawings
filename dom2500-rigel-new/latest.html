@@ -2630,8 +2630,9 @@ RH.register('labels', function (ctx) {
   // T18b: зазор GAP -- вплотную поставленные карточки иначе сходятся от
   // субпиксельного хвоста камеры (DRIFT_PX ниже).
   function rectsOverlap(a, b) { return a.left < b.right + GAP && a.right + GAP > b.left && a.top < b.bottom + GAP && a.bottom + GAP > b.top; }
-  function tryPlace(it, dy, placed) {
+  function tryPlace(it, dy, placed, safe) {
     const r = rectFor(it, dy);
+    if (safe && (r.left < safe.l || r.right > safe.r || r.top < safe.t || r.bottom > safe.b)) return false;
     for (const p of placed) if (rectsOverlap(r, p)) return false;
     return true;
   }
@@ -2682,7 +2683,7 @@ RH.register('labels', function (ctx) {
     for (const it of list) { const sz = sizeCache.get(it.key); it.w = sz.w; it.h = sz.h; }
   }
 
-  function placeItems(items) {
+  function placeItems(items, safe) {
     for (const it of items) it.nText = it.members.length > 1 ? '×' + it.members.length : '';
     measureSizes(items);
     stamp('measure');
@@ -2691,10 +2692,10 @@ RH.register('labels', function (ctx) {
     const placed = [];
     let hiddenByLayout = 0;
     for (const it of items) {
-      let ok = tryPlace(it, 0, placed), dy = 0;
+      let ok = tryPlace(it, 0, placed, safe), dy = 0;
       for (let s = SHIFT_STEP; s <= SHIFT_MAX && !ok; s += SHIFT_STEP) {
-        if (tryPlace(it, -s, placed)) { ok = true; dy = -s; }
-        else if (tryPlace(it, s, placed)) { ok = true; dy = s; }
+        if (tryPlace(it, -s, placed, safe)) { ok = true; dy = -s; }
+        else if (tryPlace(it, s, placed, safe)) { ok = true; dy = s; }
       }
       it.dy = ok ? dy : null;
       if (ok) placed.push(rectFor(it, dy)); else hiddenByLayout++;
@@ -2752,6 +2753,13 @@ RH.register('labels', function (ctx) {
       return;
     }
 
+    // Keep builder callouts inside the same unobstructed viewport used by
+    // camera framing. Measure UI bounds once, outside the callout layout pass.
+    phase = 'uiBounds';
+    const safe = ctx.asset && ctx.asset.stage_manifest ? ctx.ui.freeRect() : null;
+    stamp('uiBounds');
+    phase = 'layout';
+
     const W = viewW, H = viewH;
     for (const e of visible) {
       e._pos = screenPos(e.anchorPoint, W, H);
@@ -2769,6 +2777,9 @@ RH.register('labels', function (ctx) {
       const perCode = new Map();
       const diverse = [];
       for (const item of items) {
+        // Do not spend the small-screen quota on parts behind the stage sheet
+        // or outside the area in which a label can actually be placed.
+        if (safe && (item.pos.x < safe.l || item.pos.x > safe.r || item.pos.y < safe.t || item.pos.y > safe.b)) continue;
         const count = perCode.get(item.code) || 0;
         if (count >= 2) continue;
         diverse.push(item);
@@ -2777,7 +2788,7 @@ RH.register('labels', function (ctx) {
       }
       items.splice(0, items.length, ...diverse);
     }
-    hiddenByLayoutCount = placeItems(items);
+    hiddenByLayoutCount = placeItems(items, safe);
     stamp('layout');
     phase = 'commit';
 

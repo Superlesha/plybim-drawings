@@ -329,6 +329,7 @@
   .rh-stage-mode{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-2);margin:var(--s-2) 0 var(--s-3)}
   .rh-stage-mode > .rh-btn{min-width:0;padding-inline:var(--s-2);font-size:13px}
   .rh-stage-mode > [data-rh-action="stages.modeGhost"]{grid-column:1/-1}
+  .rh-stage-mode--builder{grid-template-columns:1fr}
   .rh-stage-mode > .rh-btn[aria-pressed="true"]{background:var(--stamp-tint);border-color:var(--stamp);color:var(--stamp)}
   .rh-systems{margin:var(--s-3) 0;padding:var(--s-3) 0;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
   .rh-systems h3{margin:0 0 var(--s-2);font:600 13px/1.3 var(--font-ui);color:var(--ink-2)}
@@ -6505,7 +6506,10 @@ RH.register('stages', function (ctx) {
   ghostBtn.className = 'rh-btn';
   ghostBtn.dataset.rhAction = 'stages.modeGhost';
   ghostBtn.textContent = 'Этап + прежнее призрачно';
-  modeControls.append(onlyBtn, cumulativeBtn, ghostBtn);
+  if (manifest) {
+    modeControls.className += ' rh-stage-mode--builder';
+    modeControls.append(cumulativeBtn, ghostBtn);
+  } else modeControls.append(onlyBtn, cumulativeBtn, ghostBtn);
   panelRoot.appendChild(modeControls);
 
   const showAllBtn = document.createElement('button');
@@ -6571,7 +6575,9 @@ RH.register('stages', function (ctx) {
 
   const animateBtn = document.createElement('button');
   animateBtn.className = 'rh-btn'; animateBtn.dataset.rhAction = 'stages.animate'; animateBtn.textContent = 'Анимация';
-  panelRoot.appendChild(animateBtn);
+  // The current drop effect distracts from assembly on the construction view.
+  // Keep the legacy action, but remove it until a useful builder sequence exists.
+  if (!manifest) panelRoot.appendChild(animateBtn);
 
   const assembleSection = document.createElement('div');
   assembleSection.hidden = true;
@@ -6598,8 +6604,10 @@ RH.register('stages', function (ctx) {
   let prevHiddenSet = null;
   let selectedNodeId = null;
   const requestedView = new URLSearchParams(location.search).get('stage_view');
-  let stageView = ['only', 'context', 'cumulative'].includes(requestedView) ? requestedView
-    : manifest && manifest.defaultMode === 'only' ? 'only' : 'cumulative';
+  // A builder must see the already assembled supports. Legacy analytical
+  // ?stage_view=only links are normalized to the cumulative construction view.
+  let stageView = manifest ? (requestedView === 'context' ? 'context' : 'cumulative')
+    : ['only', 'context', 'cumulative'].includes(requestedView) ? requestedView : 'cumulative';
 
   function syncModeButtons() {
     cumulativeBtn.setAttribute('aria-pressed', String(stageView === 'cumulative'));
@@ -6683,7 +6691,7 @@ RH.register('stages', function (ctx) {
     prevHiddenSet = newHidden;
     updateUrl();
     render();
-    if (revealed.length) animateReveal(revealed);
+    if (revealed.length && !manifest) animateReveal(revealed);
   }
 
   function updateUrl() {

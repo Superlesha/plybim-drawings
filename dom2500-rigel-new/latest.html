@@ -2347,8 +2347,8 @@ RH.register('labels', function (ctx) {
   });
 
   // --- кнопка «Подписи» -----------------------------------------------------
-  let enabled = !(ctx.asset && ctx.asset.stage_manifest && !ctx.labelStageIds);
-  let manualChoice = false;
+  // A builder needs an unobstructed model first; labels remain one tap away.
+  let enabled = !(ctx.asset && ctx.asset.stage_manifest);
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'rh-tool';
@@ -2362,11 +2362,7 @@ RH.register('labels', function (ctx) {
   }
   setEnabled(enabled);
   btn.addEventListener('click', () => {
-    manualChoice = true;
     setEnabled(!enabled);
-  });
-  ctx.on('stage-labels', (ids) => {
-    if (ctx.asset && ctx.asset.stage_manifest && !manualChoice) setEnabled(!!ids);
   });
   ctx.ui.toolbar.appendChild(btn);
 

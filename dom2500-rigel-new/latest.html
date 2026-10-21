@@ -2125,7 +2125,11 @@ RH.register('labels', function (ctx) {
   // Пороги переопределяются в адресе для проверки приёмки, без правки кода:
   // ?rhLabelsMinPixels=1 (порог видимости), ?rhLabelsMergePx=20 (слияние
   // одинаковых кодов рядом), ?rhLabelsShiftMax=40 (бюджет разводки, T18).
-  const MIN_PIXELS = Number(params.get('rhLabelsMinPixels')) || 20;
+  // The construction model has thousands of parts. At a whole-house scale the
+  // default 20-pixel threshold fills the roof with callouts; wait for a closer
+  // view before displaying them. Keep the URL override for diagnostic checks.
+  const MIN_PIXELS = Number(params.get('rhLabelsMinPixels')) ||
+    (ctx.asset && ctx.asset.stage_manifest ? 100 : 20);
   const MERGE_PX = Number(params.get('rhLabelsMergePx')) || 34;
   const SHIFT_MAX = Number(params.get('rhLabelsShiftMax')) || 40;
   const SHIFT_STEP = 4;

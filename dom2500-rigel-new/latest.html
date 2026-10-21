@@ -9279,14 +9279,15 @@ function applyPartVisual(part, state, tokens) {
     let face = null, faceA = 0;
     if (spec.faceVisible !== false) {
       face = spec.faceUseOriginal ? _faceC.copy(original.color) : _faceC.set(spec.faceColor || T.face);
-      // The source CSH foundation sheets use a black Rhino layer color without
-      // a material. Toned construction view uses a neutral drafting shade;
-      // "Цвета Rhino" continues to show the source color verbatim.
+      // Some source layers use black as a drafting color, not an approved finish.
+      // Keep that color in "Цвета Rhino"; show readable neutral surfaces in the
+      // schematic toned view only.
       if (displayMode === 'rendered' && spec.faceUseOriginal &&
-          String(part.data.code || '').toUpperCase() === 'CSH' &&
-          String(part.data.layer || '').includes('Фундамент::Осб') &&
           original.color.r < 0.04 && original.color.g < 0.04 && original.color.b < 0.04) {
-        face.set('#b8b8b8');
+        const code = String(part.data.code || '').toUpperCase();
+        const layer = String(part.data.layer || '');
+        if (code === 'CSH' && layer.includes('Фундамент::Осб')) face.set('#b8b8b8');
+        if (code === 'DPK01' && layer.includes('Терасная доска')) face.set('#b7aa95');
       }
       faceA = spec.faceOpacity == null ? 1 : spec.faceOpacity;
     }

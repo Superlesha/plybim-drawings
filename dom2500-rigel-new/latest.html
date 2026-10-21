@@ -6316,7 +6316,15 @@ RH.register('stages', function (ctx) {
     .map((row) => String(row.id).toLowerCase()) : []);
   const floorPanelParts = manifest ? ctx.parts.filter((part) =>
     floorPanelRoots.has(String(part.id).split('/')[0].toLowerCase())) : [];
-  function systemParts(id) { return id === 'floor_panels' ? floorPanelParts : byStage.get(id); }
+  const preliminaryRoots = new Set(manifest ? manifest.assignments
+    .filter((row) => row.provisional)
+    .map((row) => String(row.id).toLowerCase()) : []);
+  const preliminaryParts = manifest ? ctx.parts.filter((part) =>
+    preliminaryRoots.has(String(part.id).split('/')[0].toLowerCase())) : [];
+  function systemParts(id) {
+    return id === 'floor_panels' ? floorPanelParts
+      : id === 'preliminary_ceiling' ? preliminaryParts : byStage.get(id);
+  }
   const mainSteps = stageOrder.map((id, i) => ({ id, name: stageNames[id] || id,
     prerequisites: manifest ? (stageDefinitions[i].requires || []) : [],
     description: manifest ? stageDefinitions[i].description || '' : '',
@@ -6564,7 +6572,8 @@ RH.register('stages', function (ctx) {
     ['interior', 'Внутренние элементы'],
     ['exterior_battens', 'Наружная обрешётка'],
     ['windows', 'Окна'],
-    ['terrace', 'Терраса']
+    ['terrace', 'Терраса'],
+    ['preliminary_ceiling', 'Предварительный потолок — не утверждён']
   ];
   const primarySystems = new Set(['floor_panels', 'exterior_sheathing', 'facade', 'roof_covering', 'interior']);
   const systemRows = new Map();
@@ -6579,7 +6588,7 @@ RH.register('stages', function (ctx) {
   const extraSystems = document.createElement('details');
   extraSystems.className = 'rh-systems__extra';
   const extraSummary = document.createElement('summary');
-  extraSummary.textContent = 'Ещё системы: обрешётка, окна, терраса';
+  extraSummary.textContent = 'Ещё системы: обрешётка, окна, терраса, потолок';
   const extraGrid = document.createElement('div');
   extraGrid.className = 'rh-systems__grid';
   extraSystems.append(extraSummary, extraGrid);
@@ -6591,15 +6600,26 @@ RH.register('stages', function (ctx) {
     button.className = 'rh-system';
     button.dataset.rhAction = 'stages.system';
     button.dataset.systemId = id;
-    button.setAttribute('aria-pressed', 'true');
-    button.setAttribute('aria-label', label + ': показано');
+    const initiallyVisible = id !== 'preliminary_ceiling' ||
+      new URLSearchParams(location.search).get('preliminary') === '1';
+    button.setAttribute('aria-pressed', String(initiallyVisible));
+    button.setAttribute('aria-label', label + (initiallyVisible ? ': показано' : ': скрыто'));
     if (id === 'floor_panels') button.setAttribute('title', 'Панели пола; несущий каркас остаётся');
+    if (id === 'preliminary_ceiling') button.setAttribute('title',
+      '38 листов потолка не выбраны для строительства; включите только для сравнения');
     button.textContent = label;
     button.addEventListener('click', () => {
       const visible = button.getAttribute('aria-pressed') !== 'true';
       button.setAttribute('aria-pressed', String(visible));
       button.setAttribute('aria-label', label + (visible ? ': показано' : ': скрыто'));
+      if (id === 'preliminary_ceiling') {
+        const url = new URL(location.href);
+        if (visible) url.searchParams.set('preliminary', '1');
+        else url.searchParams.delete('preliminary');
+        history.replaceState(null, '', url);
+      }
       applySystems();
+      render();
     });
     (primarySystems.has(id) ? systemsGrid : extraGrid).appendChild(button);
     systemRows.set(id, button);
@@ -6675,8 +6695,11 @@ RH.register('stages', function (ctx) {
     showAllBtn.setAttribute('aria-pressed', String(!stageActive));
     nameEl.textContent = stageActive && step ? step.name : 'Весь дом';
     countEl.textContent = stageActive && steps.length ? (stepIdx + 1) + ' из ' + steps.length : '';
-    stepMetaEl.textContent = !stageActive ? ctx.parts.length + ' деталей · выберите этап или отключите мешающие системы' : step ? step.parts.length + ' деталей' +
-      (step.provisionalCount ? ' · ' + step.provisionalCount + ' предварительно' : '') +
+    stepMetaEl.textContent = !stageActive ? ctx.parts.length + ' деталей · выберите этап или отключите мешающие системы' : step ?
+      (step.provisionalCount ? (step.parts.length - step.provisionalCount) + ' основных + ' +
+        step.provisionalCount + ' предварительных (' +
+        (systemRows.get('preliminary_ceiling').getAttribute('aria-pressed') === 'true' ? 'показаны' : 'скрыты') + ')' :
+        step.parts.length + ' деталей') +
       (step.description ? ' · ' + step.description : '') : '';
     prevBtn.disabled = !stageActive || stepIdx <= 0;
     nextBtn.disabled = stepIdx >= steps.length - 1;
@@ -6696,8 +6719,9 @@ RH.register('stages', function (ctx) {
       row.dataset.rhAction = 'stages.step';
       row.dataset.stageId = s.id || NO_STAGE;
       row.setAttribute('aria-current', stageActive && i === stepIdx ? 'step' : 'false');
-      row.textContent = (i + 1) + '. ' + s.name + ' · ' + s.parts.length +
-        (s.provisionalCount ? ' · ' + s.provisionalCount + ' предварительно' : '');
+      row.textContent = (i + 1) + '. ' + s.name + ' · ' +
+        (s.provisionalCount ? (s.parts.length - s.provisionalCount) + ' + ' +
+          s.provisionalCount + ' предварительно' : s.parts.length);
       if (s.prerequisites.length) row.title = 'Порядок просмотра после: ' + s.prerequisites.join(', ');
       row.addEventListener('click', () => {
         goToMainStep(i);
@@ -6883,6 +6907,7 @@ RH.register('stages', function (ctx) {
     if (idx >= 0 && idx < mainSteps.length) goToMainStep(idx);
     else if (manifest) goToMainStep(0);
   } else if (manifest) goToMainStep(0);
+  if (manifest) applySystems();
 });
 </script>
 <script >// T14 — выбор, изоляция, скрыть/показать (как в Rhino).

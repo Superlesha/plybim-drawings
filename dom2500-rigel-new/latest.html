@@ -6687,13 +6687,9 @@ RH.register('stages', function (ctx) {
       if (s.prerequisites.length) row.title = 'Порядок просмотра после: ' + s.prerequisites.join(', ');
       row.addEventListener('click', () => {
         goToMainStep(i);
-        // On a phone the stage list sits deep inside the bottom sheet. After
-        // choosing a row, bring the current stage name and system switches
-        // back into view without resetting the list's own scroll position.
-        if (document.documentElement.dataset.layout === 'narrow') {
-          panelRoot.scrollTop = 0;
-          ctx.ui.panel.scrollTop = 0;
-        }
+        // A direct jump should show the chosen assembly in full. The previous
+        // and next buttons retain the camera for comparing a particular joint.
+        if (ctx.views) ctx.views.zoomExtents();
       });
       stageList.appendChild(row);
     });
@@ -6782,6 +6778,10 @@ RH.register('stages', function (ctx) {
     stepIdx = Math.max(0, Math.min(mainSteps.length - 1, idx));
     ensureOpen();
     applyAndMaybeAnimate();
+    // Stage rows can be far down the panel on both desktop and phone. Bring
+    // the chosen stage name and the system switches back into view.
+    panelRoot.scrollTop = 0;
+    ctx.ui.panel.scrollTop = 0;
   }
   function enterNodeAssembly(nodeId) {
     const view = buildNodeView(nodeId);

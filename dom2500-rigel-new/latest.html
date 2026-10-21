@@ -6580,7 +6580,8 @@ RH.register('stages', function (ctx) {
   showAllBtn.type = 'button';
   showAllBtn.className = 'rh-btn';
   showAllBtn.dataset.rhAction = 'stages.showAll';
-  showAllBtn.textContent = 'Весь дом';
+  showAllBtn.textContent = manifest ? 'Все этапы' : 'Весь дом';
+  if (manifest) showAllBtn.title = 'Показать все этапы; скрытые системы остаются скрытыми';
   headEl.appendChild(showAllBtn);
 
   // Builder-facing visibility shortcuts. Stage IDs come from the verified
@@ -6714,9 +6715,11 @@ RH.register('stages', function (ctx) {
     const { steps } = activeView();
     const step = steps[stepIdx];
     showAllBtn.setAttribute('aria-pressed', String(!stageActive));
-    nameEl.textContent = stageActive && step ? step.name : 'Весь дом';
+    nameEl.textContent = stageActive && step ? step.name : (manifest ? 'Все этапы' : 'Весь дом');
     countEl.textContent = stageActive && steps.length ? (stepIdx + 1) + ' из ' + steps.length : '';
-    stepMetaEl.textContent = !stageActive ? ctx.parts.length + ' деталей · выберите этап или отключите мешающие системы' : step ?
+    stepMetaEl.textContent = !stageActive ? ctx.parts.length + (manifest
+      ? ' деталей · скрытые системы остаются скрытыми'
+      : ' деталей · выберите этап или отключите мешающие системы') : step ?
       (step.provisionalCount ? (step.parts.length - step.provisionalCount) + ' основных + ' +
         step.provisionalCount + ' предварительных (' +
         (systemRows.get('preliminary_ceiling').getAttribute('aria-pressed') === 'true' ? 'показаны' : 'скрыты') + ')' :

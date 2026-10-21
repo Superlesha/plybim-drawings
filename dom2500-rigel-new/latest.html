@@ -2992,7 +2992,8 @@ RH.register('search', function (ctx) {
     var wrap = el('div', 'rh-chain');
     var names = part.chain.map(function (a) { return a.name || a.code; }).filter(Boolean);
     var stages = ctx.asset && ctx.asset.stages;
-    var stageName = stages && part.data && stages[part.data.stage];
+    var stageId = rootStages && rootStages.get(String(part.id).split('/')[0].toLowerCase());
+    var stageName = stageId ? stageTitles.get(stageId) : stages && part.data && stages[part.data.stage];
     if (stageName) names.push(stageName);
     names.forEach(function (name, i) {
       if (i) wrap.appendChild(document.createTextNode(' → '));
@@ -9248,7 +9249,9 @@ function showDetail(part) {
   dl.className = 'rh-kv';
   addRow(dl, 'слой', data.layer);
   addRow(dl, 'зона', data.zone);
-  addRow(dl, 'этап', data.stage);
+  const displayStage = ctx && ctx.displayStageByRoot &&
+    ctx.displayStageByRoot.get(String(part.id).split('/')[0].toLowerCase());
+  addRow(dl, displayStage ? 'этап строительства' : 'этап', displayStage || data.stage);
   addRow(dl, 'роль', data.role);
   if (dl.childElementCount) $detailBody.appendChild(dl);
   $detail.classList.add('show');
@@ -9930,6 +9933,11 @@ function buildCtx(gltf) {
   if (stageManifestEl && stageManifestEl.textContent.trim()) {
     asset.stage_manifest = JSON.parse(stageManifestEl.textContent);
   }
+  const displayStageByRoot = asset.stage_manifest ? new Map(
+    asset.stage_manifest.assignments.map((row) => {
+      const stage = asset.stage_manifest.stages.find((entry) => String(entry.id) === String(row.stageId));
+      return [String(row.id).toLowerCase(), stage ? stage.order + '. ' + stage.title : String(row.stageId)];
+    })) : null;
   ctx = {
     THREE,
     addons: { OrbitControls, CSS2DRenderer, CSS2DObject, GLTFLoader },
@@ -9942,7 +9950,7 @@ function buildCtx(gltf) {
     // своего перетаскивания (T27b).
     get dragging() { return activePointers.size > 0 || performance.now() < moveUntil || !controls.enabled; },
     root: gltf.scene,
-    asset,
+    asset, displayStageByRoot,
     parts, nodes,
     ui: { toolbar: document.getElementById('toolbar'), panel: document.getElementById('module-panel'), freeRect, viewRect },
     setState, clearState,

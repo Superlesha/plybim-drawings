@@ -1158,6 +1158,11 @@ RH.register('views', function (ctx) {
   }
 
   function zoomExtents() { reframe(visibleParts()); }
+  function fitVisible() {
+    // Stage arrows need new visible bounds without discarding a builder's
+    // manually rotated viewing angle.
+    fitBox(boxForParts(visibleParts()), 24);
+  }
   function lookFrom(dir, up) { reframe(visibleParts(), dir, up); }
 
   function selectionTargets() {
@@ -1272,6 +1277,7 @@ RH.register('views', function (ctx) {
     table: exposedTable,
     lookFrom: lookFrom,
     zoomExtents: zoomExtents,
+    fitVisible: fitVisible,
     zoomSelected: zoomSelected,
     fitBox: fitBox, // T35
   };
@@ -6725,8 +6731,7 @@ RH.register('stages', function (ctx) {
       if (s.prerequisites.length) row.title = 'Порядок просмотра после: ' + s.prerequisites.join(', ');
       row.addEventListener('click', () => {
         goToMainStep(i);
-        // A direct jump should show the chosen assembly in full. The previous
-        // and next buttons retain the camera for comparing a particular joint.
+        // A direct jump should show the chosen assembly in full.
         if (ctx.views) ctx.views.zoomExtents();
       });
       stageList.appendChild(row);
@@ -6856,11 +6861,15 @@ RH.register('stages', function (ctx) {
   prevBtn.addEventListener('click', () => {
     stepIdx = Math.max(0, stepIdx - 1);
     applyAndMaybeAnimate();
+    // Builder navigation is a walkthrough: show the whole result of each step.
+    // Keeping the previous camera clipped new roof sheets at step 7.
+    if (manifest && ctx.views) ctx.views.fitVisible();
   });
   nextBtn.addEventListener('click', () => {
     const { steps } = activeView();
     stepIdx = stageActive ? Math.min(steps.length - 1, stepIdx + 1) : 0;
     applyAndMaybeAnimate();
+    if (manifest && ctx.views) ctx.views.fitVisible();
   });
   animateBtn.addEventListener('click', () => {
     const { steps } = activeView();

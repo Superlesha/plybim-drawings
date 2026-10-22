@@ -6997,6 +6997,11 @@ RH.register('stages', function (ctx) {
     stopAnimation(); // новый шаг обрывает прежнюю анимацию, не портя итоговое состояние
     const view = activeView();
     const { steps, alwaysVisible } = view;
+    if (interiorFocusActive && (mode !== 'stage' || steps[stepIdx]?.id !== 'interior')) {
+      interiorFocusActive = false;
+      stageView = interiorFocusPreviousView;
+      syncModeButtons();
+    }
     const result = applyStep(steps, stepIdx, alwaysVisible,
       mode === 'stage' && stageView === 'context' ? 'ghost' : mode === 'stage' ? stageView : 'cumulative');
     // «Сборка узла» изолирует узел: всё, что не входит в его состав, скрыто на всё время
@@ -7049,6 +7054,12 @@ RH.register('stages', function (ctx) {
   function closePanel() {
     if (!panelOpen) return;
     restoreInventory();
+    if (interiorFocusActive) {
+      interiorFocusActive = false;
+      stageView = interiorFocusPreviousView;
+      syncModeButtons();
+      applyAndMaybeAnimate();
+    }
     panelOpen = false;
     toggleBtn.setAttribute('aria-pressed', 'false');
     stopAnimation();
@@ -7062,6 +7073,10 @@ RH.register('stages', function (ctx) {
     inventorySearch.value = '';
     inventory.open = false;
     stopAnimation();
+    if (interiorFocusActive) {
+      stageView = interiorFocusPreviousView;
+      syncModeButtons();
+    }
     interiorFocusActive = false;
     ctx.clearState('interior-focus');
     mode = 'stage'; currentNodeId = null; stageActive = false;

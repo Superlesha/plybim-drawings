@@ -441,9 +441,12 @@
   .rh-label-group-panel__head{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .rh-label-group-panel__head button{border:1px solid var(--c-leader);border-radius:4px;background:transparent;color:inherit;padding:5px 8px;cursor:pointer}
   .rh-label-group-panel p{margin:7px 0;color:var(--c-leader)}
+  .rh-label-group-panel input[type="search"]{box-sizing:border-box;width:100%;margin:8px 0;padding:7px;border:1px solid var(--c-leader);border-radius:4px;background:var(--c-label-bg);color:var(--c-label-ink);font:12px var(--font-ui)}
   .rh-label-group-panel__list{max-height:210px;overflow:auto;display:grid;gap:3px}
-  .rh-label-group-panel__list button{width:100%;text-align:left;padding:7px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;font:12px/1.3 var(--font-code);cursor:pointer}
-  .rh-label-group-panel__list button:hover,.rh-label-group-panel__list button:focus-visible,.rh-label-group-panel__head button:focus-visible{background:#7773;outline:2px solid currentColor;outline-offset:1px}
+  .rh-label-group-panel__list details[hidden],.rh-label-group-panel__list button[hidden]{display:none}
+  .rh-label-group-panel__list summary{padding:6px 4px;border-bottom:1px solid #8885;font:600 12px/1.3 var(--font-code);cursor:pointer}
+  .rh-label-group-panel__list button{display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;padding:7px 8px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;font:12px/1.3 var(--font-code);cursor:pointer}
+  .rh-label-group-panel__list button:hover,.rh-label-group-panel__list button:focus-visible,.rh-label-group-panel__list summary:focus-visible,.rh-label-group-panel__head button:focus-visible,.rh-label-group-panel input:focus-visible{background:#7773;outline:2px solid currentColor;outline-offset:1px}
   /* T13b: размер сносок -- множитель --rh-label-scale (ползунок удержания «Подписи»); выноска держит низ на якоре */
   .rh-labels-layer .rh-callout{font-size:calc(12px * var(--rh-label-scale,1));margin-top:calc(-18px - 7.8px * var(--rh-label-scale,1))}
   .rh-labels-layer .rh-callout__n{font-size:calc(11px * var(--rh-label-scale,1))}
@@ -2316,25 +2319,58 @@ RH.register('labels', function (ctx) {
     close.setAttribute('aria-label', 'Закрыть список деталей');
     close.addEventListener('click', closeGroupPanel);
     header.append(title, close);
-    const note = document.createElement('p');
-    note.textContent = 'Выберите деталь, чтобы подсветить её в модели.';
+    const filter = document.createElement('input');
+    filter.type = 'search'; filter.placeholder = 'Код или деталь в этой области';
+    filter.setAttribute('aria-label', 'Найти код или деталь в этой группе');
     const list = document.createElement('div');
     list.className = 'rh-label-group-panel__list';
-    const ordered = item.members.slice().sort((a, b) =>
-      a.code.localeCompare(b.code) || a._pos.y - b._pos.y || a._pos.x - b._pos.x);
-    for (let i = 0; i < ordered.length; i++) {
-      const entry = ordered[i];
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = entry.code + (entry.referenceOnly ? ' · учёт' : '') +
-        ' — ' + String(entry.part.data.name || entry.part.node.name || 'деталь ' + (i + 1));
-      button.addEventListener('click', () => {
-        closeGroupPanel();
-        ctx.emit('select', { part: entry.part, ctrl: false, shift: false, alt: false, pointerType: 'mouse' });
-      });
-      list.appendChild(button);
+    const byCode = new Map();
+    for (const entry of item.members) {
+      if (!byCode.has(entry.code)) byCode.set(entry.code, []);
+      byCode.get(entry.code).push(entry);
     }
-    groupPanel.replaceChildren(header, note, list);
+    const sections = [];
+    for (const [code, members] of Array.from(byCode).sort((a, b) => a[0].localeCompare(b[0]))) {
+      members.sort((a, b) => a._pos.y - b._pos.y || a._pos.x - b._pos.x);
+      const details = document.createElement('details');
+      details.open = byCode.size === 1;
+      const summary = document.createElement('summary');
+      summary.textContent = code + ' ×' + members.length +
+        (members.every((e) => e.referenceOnly) ? ' · учёт' : '');
+      details.appendChild(summary);
+      const buttons = [];
+      for (let i = 0; i < members.length; i++) {
+        const entry = members[i];
+        const name = String(entry.part.data.name || entry.part.node.name || 'деталь ' + (i + 1));
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.title = name;
+        button.setAttribute('aria-label', code + ' — ' + name);
+        button.textContent = name.startsWith(code + '.') ? name.slice(code.length + 1) : name;
+        button.addEventListener('click', () => {
+          closeGroupPanel();
+          ctx.emit('select', { part: entry.part, ctrl: false, shift: false, alt: false, pointerType: 'mouse' });
+        });
+        details.appendChild(button);
+        buttons.push({ element: button, name: name.toLocaleLowerCase() });
+      }
+      list.appendChild(details);
+      sections.push({ code: code.toLocaleLowerCase(), element: details, buttons });
+    }
+    filter.addEventListener('input', () => {
+      const query = filter.value.trim().toLocaleLowerCase();
+      for (const section of sections) {
+        const codeMatch = section.code.includes(query);
+        let matches = 0;
+        for (const button of section.buttons) {
+          button.element.hidden = !!query && !codeMatch && !button.name.includes(query);
+          if (!button.element.hidden) matches++;
+        }
+        section.element.hidden = !matches;
+        if (query && matches) section.element.open = true;
+      }
+    });
+    groupPanel.replaceChildren(header, filter, list);
     groupPanel.hidden = false;
     close.focus();
   }

@@ -2212,6 +2212,11 @@ RH.groupBuilderLabels = function (visible, cellWidth, cellHeight, safe) {
         (members.every((e) => e.referenceOnly) ? '*' : ''), codeCount: codes.length };
   });
 };
+RH.labelsInFreeArea = function (entries, safe) {
+  if (!safe) return entries;
+  return entries.filter((e) => e._pos.x >= safe.l && e._pos.x <= safe.r &&
+    e._pos.y >= safe.t && e._pos.y <= safe.b);
+};
 RH.register('labels', function (ctx) {
   const THREE = ctx.THREE;
   const { CSS2DRenderer, CSS2DObject } = ctx.addons;
@@ -3029,6 +3034,7 @@ RH.register('labels', function (ctx) {
       e._dist = ctx.camera.position.distanceTo(e.anchorPoint);
       e._priority = e.worldSize / Math.max(e._dist, 1e-6); // крупная или близкая -> больше
     }
+    const layoutVisible = allMode && !focused ? RH.labelsInFreeArea(visible, safe) : visible;
 
     let items;
     if (allMode) {
@@ -3038,7 +3044,7 @@ RH.register('labels', function (ctx) {
       const scale = Number(css.domElement.style.getPropertyValue('--rh-label-scale')) || 1;
       let cellW = 145 * scale, cellH = 62 * scale;
       for (let pass = 0; pass < 7; pass++) {
-        items = RH.groupBuilderLabels(visible, cellW, cellH, safe);
+        items = RH.groupBuilderLabels(layoutVisible, cellW, cellH, safe);
         hiddenByLayoutCount = placeItems(items, safe, true);
         if (!hiddenByLayoutCount) break;
         cellW *= 1.42; cellH *= 1.32;
@@ -6883,9 +6889,9 @@ RH.register('stages', function (ctx) {
     labelCoverageNote.textContent = labelCoverage.pending
       ? 'Обновляем подписи для этого вида…'
       : labelCoverage.focused ? 'Выбрана деталь. Esc — вернуть подписи текущего вида.'
-      : 'На текущем виде: ' + (labelCoverage.represented ?? labelCoverage.shown) +
-        ' из ' + labelCoverage.total + ' деталей в ' + labelCoverage.shown +
-        ' подписях. Нажмите группу, чтобы выбрать деталь; все коды есть в списке ниже.' +
+      : 'На свободной части вида: ' + (labelCoverage.represented ?? labelCoverage.shown) +
+        ' деталей в ' + labelCoverage.shown + ' подписях. Всего на этапе: ' +
+        labelCoverage.total + '. Нажмите группу, чтобы выбрать деталь; все коды есть в списке ниже.' +
         (labelCoverage.referenceShown ? ' * — код для учёта, без фрезерной маркировки.' : '');
   });
   if (manifest && manifest.engineeringErectionApproval !== true &&

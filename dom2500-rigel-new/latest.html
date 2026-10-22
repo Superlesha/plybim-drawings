@@ -2735,10 +2735,9 @@ RH.register('labels', function (ctx) {
   // T31d: замер для приёмки -- время стадий последнего пересчёта (мс), текущая
   // стадия (проба считает по ней чтения геометрии DOM), показанные подписи.
   let timings = {}, tMark = 0, phase = null, lastShown = [], lastCommitAt = 0;
-  let lastStats = { eligible: entries.length, candidates: 0, groups: 0, shown: 0, hiddenByLayout: 0 };
   function stamp(name) { const t = performance.now(); timings[name] = t - tMark; tMark = t; }
   window.__rhLabels = { get hiddenByLayout() { return hiddenByLayoutCount; }, get recomputes() { return recomputes; }, // приёмка T18/T18b (javascript_tool)
-    get timings() { return timings; }, get phase() { return phase; }, get shown() { return lastShown; }, get stats() { return lastStats; }, get lastCommitAt() { return lastCommitAt; },
+    get timings() { return timings; }, get phase() { return phase; }, get shown() { return lastShown; }, get lastCommitAt() { return lastCommitAt; },
     recompute() { recomputeVisibility(); } };
 
   function recomputeVisibility() {
@@ -2760,7 +2759,6 @@ RH.register('labels', function (ctx) {
       // раскладка бессмысленна, пока ничего не показывается.
       for (const e of entries) { e.el.style.display = 'none'; e.co.visible = false; }
       hiddenByLayoutCount = 0;
-      lastStats = { eligible: entries.length, candidates: visible.length, groups: 0, shown: 0, hiddenByLayout: 0 };
       ctx.requestRender();
       phase = null;
       return;
@@ -2781,13 +2779,27 @@ RH.register('labels', function (ctx) {
     }
 
     const items = clusterVisible(visible);
-    // Screen-space collision placement below decides which callouts fit.
-    // A hard quota (formerly 30/14 total and two per code) hid otherwise
-    // readable beams on every construction stage even when there was room.
+    if (ctx.asset && ctx.asset.stage_manifest) {
+      // A builder needs room to see the joint behind each callout. Dense roof
+      // framing can otherwise fill a phone with dozens of labels at once.
+      // The part card and code search still expose every individual code.
+      const limit = document.documentElement.dataset.layout === 'narrow' ? 14 : 30;
+      items.sort((a, b) => b.priority - a.priority);
+      const perCode = new Map();
+      const diverse = [];
+      for (const item of items) {
+        // Do not spend the small-screen quota on parts behind the stage sheet
+        // or outside the area in which a label can actually be placed.
+        if (safe && (item.pos.x < safe.l || item.pos.x > safe.r || item.pos.y < safe.t || item.pos.y > safe.b)) continue;
+        const count = perCode.get(item.code) || 0;
+        if (count >= 2) continue;
+        diverse.push(item);
+        perCode.set(item.code, count + 1);
+        if (diverse.length === limit) break;
+      }
+      items.splice(0, items.length, ...diverse);
+    }
     hiddenByLayoutCount = placeItems(items, safe);
-    lastStats = { eligible: entries.length, candidates: visible.length,
-      groups: items.length, shown: items.length - hiddenByLayoutCount,
-      hiddenByLayout: hiddenByLayoutCount };
     stamp('layout');
     phase = 'commit';
 

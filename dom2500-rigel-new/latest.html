@@ -6772,11 +6772,21 @@ RH.register('stages', function (ctx) {
     inventoryHardwareOverride = false;
     inventoryRestore.hidden = true;
     inventoryStatus.textContent = 'Этап восстановлен. Выберите другую деталь.';
+    syncInventorySummary();
   }
 
   function inventoryCode(part) {
     const data = part.data || {};
     return String(data.role === 'покупное' && data.sku || data.code || '').trim();
+  }
+
+  function syncInventorySummary() {
+    if (!manifest || !stageActive || mode !== 'stage') return;
+    const coded = mainSteps[stepIdx].parts.filter((part) => inventoryCode(part));
+    const hidden = coded.filter((part) => ctx.getPartState && ctx.getPartState(part.id) === 'hidden');
+    inventorySummary.textContent = 'Детали этапа · ' + coded.length + ' с кодом' +
+      (hidden.length ? ' · ' + hidden.length +
+        (hidden.every((part) => part.data && part.data.role === 'крепёж') ? ' крепежа скрыты' : ' скрыты') : '');
   }
 
   function renderInventory() {
@@ -6785,9 +6795,7 @@ RH.register('stages', function (ctx) {
     inventory.hidden = !step;
     if (!step) return;
     const coded = step.parts.filter((part) => inventoryCode(part));
-    const hiddenCount = coded.filter((part) => ctx.getPartState && ctx.getPartState(part.id) === 'hidden').length;
-    inventorySummary.textContent = 'Детали этапа · ' + coded.length + ' с кодом' +
-      (hiddenCount ? ' · ' + hiddenCount + ' скрыты' : '');
+    syncInventorySummary();
     if (!inventory.open) return;
     const query = inventorySearch.value.trim().toLocaleLowerCase('ru');
     const groups = new Map();
@@ -6844,6 +6852,7 @@ RH.register('stages', function (ctx) {
               inventoryIsolation = true;
               inventoryRestore.hidden = false;
             }
+            syncInventorySummary();
             if (ctx.views) ctx.views.zoomSelected();
             inventoryStatus.textContent = code + ': показана отдельно. Нажмите «Вернуть этап» для общего вида.';
           });

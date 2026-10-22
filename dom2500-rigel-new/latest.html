@@ -2267,8 +2267,10 @@ RH.register('labels', function (ctx) {
     if (pick.count < 2) { stackHint.hidden = true; return; }
     const bounds = ctx.container.getBoundingClientRect();
     stackHint.textContent = pick.index + 1 + '/' + pick.count + ' · ' + pick.entry.code +
-      ' · нажмите ещё раз здесь для следующей детали';
-    stackHint.style.left = Math.max(12, Math.min(e.clientX - bounds.left + 12, bounds.width - 230)) + 'px';
+      ' · ещё раз — следующая';
+    const localX = e.clientX - bounds.left;
+    const preferredX = localX > bounds.width / 2 ? localX - 242 : localX + 12;
+    stackHint.style.left = Math.max(12, Math.min(preferredX, bounds.width - 242)) + 'px';
     stackHint.style.top = Math.max(12, Math.min(e.clientY - bounds.top + 12, bounds.height - 44)) + 'px';
     stackHint.hidden = false;
     stackHintTimer = setTimeout(() => { stackHint.hidden = true; stackHintTimer = null; }, 3500);
@@ -3026,6 +3028,8 @@ RH.register('labels', function (ctx) {
     // A previously visible tag can become occluded as soon as the camera moves.
     // Hide it until the next ID pass establishes a fresh anchor/visibility.
     if (motion > 0.1 && shown.length) {
+      lastStackPick = null;
+      stackHint.hidden = true;
       hideShownLabels();
       dragPending = true;
     }

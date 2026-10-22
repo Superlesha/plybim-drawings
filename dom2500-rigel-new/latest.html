@@ -2106,15 +2106,16 @@ RH.register('viewcube', function (ctx) {
 // поверх соседних -- визуально стопка одинаковых перекрытых подписей.
 // Подтверждено измерением исходных данных фикстуры (не гипотеза). Правило
 // слияния по коду схлопывает такую группу в одну карточку «CN36V ×N».
+RH.accountingOnlyCodePolicy = function (data) {
+  if (!data || !data.code) return false;
+  if (['true', '1', 'yes'].includes(String(data.user && data.user.not_for_cnc || '').trim().toLowerCase())) return true;
+  // CLO/CLL battens are sawn; their model codes do not imply a CNC mark.
+  return /^(?:CLO|CLL)(?:\d+)?(?:\.|$)/.test(String(data.code));
+};
 RH.labelEligiblePolicy = function (data) {
   if (!data || data.role === 'контекст') return false;
   if (data.role === 'покупное') return !!data.sku;
-  // Model accounting codes are not proof of a physical CNC mark. Keep these
-  // codes in search and part details, but omit their floating callouts.
-  if (['true', '1', 'yes'].includes(String(data.user && data.user.not_for_cnc || '').trim().toLowerCase())) return false;
-  // CLO/CLL battens are sawn, not CNC-marked. Their accounting codes remain
-  // available in search and part details without noisy callouts on the model.
-  if (/^(?:CLO|CLL)(?:\d+)?(?:\.|$)/.test(String(data.code || ''))) return false;
+  if (RH.accountingOnlyCodePolicy(data)) return false;
   return true;
 };
 RH.labelVisiblePolicy = function (e, stageIds, selectedId, section, minPixels) {
@@ -6857,7 +6858,7 @@ RH.register('stages', function (ctx) {
       const group = document.createElement('details');
       group.className = 'rh-stage-inventory__group';
       const summary = document.createElement('summary');
-      const reference = parts.every((part) => RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data));
+      const reference = parts.every((part) => RH.accountingOnlyCodePolicy && RH.accountingOnlyCodePolicy(part.data));
       summary.textContent = code + ' × ' + parts.length + (reference ? ' · код для учёта' : '');
       group.appendChild(summary);
       group.addEventListener('toggle', () => {
@@ -6869,7 +6870,7 @@ RH.register('stages', function (ctx) {
           button.type = 'button';
           button.dataset.rhAction = 'stages.inventoryPart';
           button.textContent = (index + 1) + '. ' + String(part.data && part.data.name || 'Деталь') +
-            (RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data) ? ' · код для учёта' : '');
+            (RH.accountingOnlyCodePolicy && RH.accountingOnlyCodePolicy(part.data) ? ' · код для учёта' : '');
           button.title = 'Найти в доме и приблизить ' + code;
           button.addEventListener('click', () => {
             restoreInventory();
@@ -9736,6 +9737,12 @@ function showDetail(part) {
     name.className = 'rh-card__name';
     name.textContent = data.name;
     $detailBody.appendChild(name);
+  }
+  if (data.code && window.RH.accountingOnlyCodePolicy && window.RH.accountingOnlyCodePolicy(data)) {
+    const note = document.createElement('p');
+    note.className = 'rh-purchase-note';
+    note.textContent = 'Код для учёта · деталь не имеет фрезерной маркировки';
+    $detailBody.appendChild(note);
   }
   const envelopeNote = window.RH.envelopeModelNote(data.code);
   if (envelopeNote) {

@@ -3670,16 +3670,25 @@ RH.register('filters', function (ctx) {
     var hwCountEl = document.createElement('span');
     hwCountEl.className = 'rh-count';
     hwCountEl.textContent = String(hwCount);
-    hwToggle.addEventListener('click', function () {
-      hwVisible = !hwVisible;
-      hwToggle.setAttribute('aria-checked', String(hwVisible));
-      compute();
-      syncUrl();
-    });
+    hwToggle.addEventListener('click', function () { ctx.filters.setHardwareVisible(!hwVisible); });
     hwRow.appendChild(hwToggle);
     hwRow.appendChild(hwCountEl);
     body.appendChild(hwRow);
   }
+
+  // Inventory access to a chosen fastener respects the builder's filter and
+  // restores its former value after the isolated inspection.
+  ctx.filters = {
+    hardwareVisible: function () { return hwVisible; },
+    setHardwareVisible: function (visible, persist) {
+      visible = !!visible;
+      if (!hwCount || hwVisible === visible) return;
+      hwVisible = visible;
+      hwToggle.setAttribute('aria-checked', String(hwVisible));
+      compute();
+      if (persist !== false) syncUrl();
+    },
+  };
 
   var resetBtn = document.createElement('button');
   resetBtn.type = 'button';
@@ -6753,11 +6762,14 @@ RH.register('stages', function (ctx) {
   let prevHiddenSet = null;
   let selectedNodeId = null;
   let inventoryIsolation = false;
+  let inventoryHardwareOverride = false;
 
   function restoreInventory() {
-    if (!inventoryIsolation) return;
-    if (ctx.visibility) ctx.visibility.restoreIsolation();
+    if (!inventoryIsolation && !inventoryHardwareOverride) return;
+    if (inventoryIsolation && ctx.visibility) ctx.visibility.restoreIsolation();
+    if (inventoryHardwareOverride && ctx.filters) ctx.filters.setHardwareVisible(false, false);
     inventoryIsolation = false;
+    inventoryHardwareOverride = false;
     inventoryRestore.hidden = true;
     inventoryStatus.textContent = 'Этап восстановлен. Выберите другую деталь.';
   }
@@ -6811,8 +6823,18 @@ RH.register('stages', function (ctx) {
           button.title = 'Показать отдельно и приблизить ' + code;
           button.addEventListener('click', () => {
             restoreInventory();
+            if (ctx.getPartState && ctx.getPartState(part.id) === 'hidden' &&
+                part.data && part.data.role === 'крепёж' && ctx.filters &&
+                !ctx.filters.hardwareVisible()) {
+              ctx.filters.setHardwareVisible(true, false);
+              inventoryHardwareOverride = true;
+            }
             if (ctx.getPartState && ctx.getPartState(part.id) === 'hidden') {
-              inventoryStatus.textContent = code + ': деталь скрыта переключателем системы. Включите систему выше.';
+              if (inventoryHardwareOverride) {
+                ctx.filters.setHardwareVisible(false, false);
+                inventoryHardwareOverride = false;
+              }
+              inventoryStatus.textContent = code + ': деталь скрыта фильтром или системой. Включите её в панели управления.';
               return;
             }
             ctx.emit('select', { part, pointerType: 'inventory' });

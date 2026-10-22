@@ -2125,7 +2125,9 @@ RH.labelVisiblePolicy = function (e, stageIds, selectedId, section, minPixels) {
   const selected = e.part.id === selectedId &&
     (e.state === 'selected' || e.state === 'found-selected');
   if (stageIds && !stageIds.has(e.part.id) && !selected) return false;
-  if (!e.pixelId && section.enabled) return false;
+  // A builder-stage label must have a visible rasterized surface. An info-only
+  // part has no such surface; its fallback center can appear through the house.
+  if (!e.pixelId && (section.enabled || stageIds)) return false;
   if (e.pixelId && e.visiblePixels < minPixels) return false;
   return !!e.anchorPoint && section.keeps(e.anchorPoint);
 };
@@ -2415,6 +2417,8 @@ RH.register('labels', function (ctx) {
   btn.type = 'button';
   btn.className = 'rh-tool';
   btn.textContent = 'Подписи';
+  if (ctx.asset && ctx.asset.stage_manifest) btn.title =
+    'Показать коды всех видимых деталей, включая коды для учёта. Повторное нажатие скроет подписи.';
   btn.dataset.rhAction = 'labels.toggle';
   function hideShownLabels() {
     for (const e of shown) {
@@ -2432,11 +2436,12 @@ RH.register('labels', function (ctx) {
   }
   function setEnabled(next) {
     enabled = next;
-    if (!enabled) allMode = false;
+    // One builder control: every visible coded part on, then every tag off.
+    // The legacy non-builder viewer keeps its ordinary decluttered mode.
+    allMode = !!(enabled && ctx.asset && ctx.asset.stage_manifest);
     updateSearchPrompt();
     resetAllLabels();
     btn.setAttribute('aria-pressed', String(enabled));
-    if (allBtn) allBtn.setAttribute('aria-pressed', String(allMode));
     css.domElement.style.display = enabled ? '' : 'none';
     ctx.emit('labels-coverage', { active: enabled && allMode, pending: enabled && allMode });
     if (enabled) scheduleRecompute(0);
@@ -2445,27 +2450,6 @@ RH.register('labels', function (ctx) {
     setEnabled(!enabled);
   });
   ctx.ui.toolbar.appendChild(btn);
-
-  // The ordinary button keeps the overview readable. The builder can opt in
-  // to every visible coded part, including accounting-only codes, repeated
-  // codes and small parts.
-  // Dense labels are expected in this mode; zoom and system switches provide
-  // the space needed to inspect them individually.
-  let allBtn = null;
-  if (ctx.asset && ctx.asset.stage_manifest) {
-    allBtn = document.createElement('button');
-    allBtn.type = 'button';
-    allBtn.className = 'rh-tool';
-    allBtn.textContent = 'Все подписи';
-    allBtn.title = 'Показать каждую видимую деталь с кодом, включая учётные коды. Чтобы читать подписи без нагромождения, введите нужный код в поиск сверху.';
-    allBtn.dataset.rhAction = 'labels.all';
-    allBtn.setAttribute('aria-pressed', 'false');
-    allBtn.addEventListener('click', () => {
-      allMode = !allMode;
-      setEnabled(true);
-    });
-    ctx.ui.toolbar.appendChild(allBtn);
-  }
 
   // Размер подписей (T13b, слово владельца 26.09): удержание кнопки -> ползунок
   // 70-160 %. Значение -- множитель шрифта сносок (--rh-label-scale, index.html),

@@ -2401,6 +2401,13 @@ RH.register('labels', function (ctx) {
   // A builder needs an unobstructed model first; labels remain one tap away.
   let enabled = !(ctx.asset && ctx.asset.stage_manifest);
   let allMode = false;
+  function updateSearchPrompt() {
+    if (!(ctx.asset && ctx.asset.stage_manifest)) return;
+    const search = document.querySelector('.rh-search input[data-rh-action="search.input"]');
+    if (!search) return;
+    search.placeholder = allMode ? 'Найти подписи по коду…' : 'Код детали…';
+    search.setAttribute('aria-label', allMode ? 'Найти подписи по коду' : 'Поиск детали по коду');
+  }
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'rh-tool';
@@ -2423,6 +2430,7 @@ RH.register('labels', function (ctx) {
   function setEnabled(next) {
     enabled = next;
     if (!enabled) allMode = false;
+    updateSearchPrompt();
     resetAllLabels();
     btn.setAttribute('aria-pressed', String(enabled));
     if (allBtn) allBtn.setAttribute('aria-pressed', String(allMode));
@@ -2445,7 +2453,7 @@ RH.register('labels', function (ctx) {
     allBtn.type = 'button';
     allBtn.className = 'rh-tool';
     allBtn.textContent = 'Все подписи';
-    allBtn.title = 'Показать каждую видимую деталь с кодом, включая коды без фрезерной маркировки (пометка «код для учёта»). Для чтения приблизьте нужный узел.';
+    allBtn.title = 'Показать каждую видимую деталь с кодом, включая учётные коды. Чтобы читать подписи без нагромождения, введите нужный код в поиск сверху.';
     allBtn.dataset.rhAction = 'labels.all';
     allBtn.setAttribute('aria-pressed', 'false');
     allBtn.addEventListener('click', () => {
@@ -3292,6 +3300,7 @@ RH.register('search', function (ctx) {
   input.autocomplete = 'off';
   input.spellcheck = false;
   input.placeholder = 'Код детали…';
+  input.setAttribute('aria-label', 'Поиск детали по коду');
   input.dataset.rhAction = 'search.input';
   var clearBtn = el('button', 'rh-search__clear');
   clearBtn.type = 'button';

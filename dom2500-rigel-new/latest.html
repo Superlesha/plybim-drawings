@@ -2191,6 +2191,19 @@ RH.pickFromLabelStack = function (stack, clickedId, previous, x, y) {
 // A whole stage can contain hundreds of visible parts. Every part belongs to
 // exactly one screen-space group; zooming spreads the anchors and splits the
 // groups naturally. No fixed quota silently drops parts.
+RH.builderLabelGroup = function (members, safe, preferred) {
+    const inSafe = safe ? members.filter((e) => e._pos.x >= safe.l && e._pos.x <= safe.r &&
+      e._pos.y >= safe.t && e._pos.y <= safe.b) : members;
+    const candidates = inSafe.length ? inSafe : members;
+    const selected = candidates.find((e) => e.state === 'selected' || e.state === 'found-selected');
+    const rep = preferred || selected || candidates.reduce((best, e) => e._priority > best._priority ? e : best);
+    const codes = Array.from(new Set(members.map((e) => e.code))).sort();
+    const displayCode = codes.length === 1 ? codes[0] :
+      codes.length === 2 ? codes.join(' / ') : 'Кодов: ' + codes.length;
+    return { code: displayCode, displayCode, members, rep, priority: rep._priority,
+      pos: rep._pos, dy: 0, nText: (members.length > 1 ? '×' + members.length : '') +
+        (members.every((e) => e.referenceOnly) ? '*' : ''), codeCount: codes.length };
+};
 RH.groupBuilderLabels = function (visible, cellWidth, cellHeight, safe) {
   const cells = new Map();
   for (const entry of visible) {
@@ -2198,19 +2211,23 @@ RH.groupBuilderLabels = function (visible, cellWidth, cellHeight, safe) {
     if (!cells.has(key)) cells.set(key, []);
     cells.get(key).push(entry);
   }
-  return Array.from(cells.values(), (members) => {
-    const inSafe = safe ? members.filter((e) => e._pos.x >= safe.l && e._pos.x <= safe.r &&
-      e._pos.y >= safe.t && e._pos.y <= safe.b) : members;
-    const candidates = inSafe.length ? inSafe : members;
-    const selected = candidates.find((e) => e.state === 'selected' || e.state === 'found-selected');
-    const rep = selected || candidates.reduce((best, e) => e._priority > best._priority ? e : best);
-    const codes = Array.from(new Set(members.map((e) => e.code))).sort();
-    const displayCode = codes.length === 1 ? codes[0] :
-      codes.length === 2 ? codes.join(' / ') : 'Кодов: ' + codes.length;
-    return { code: displayCode, displayCode, members, rep, priority: rep._priority,
-      pos: rep._pos, dy: 0, nText: (members.length > 1 ? '×' + members.length : '') +
-        (members.every((e) => e.referenceOnly) ? '*' : ''), codeCount: codes.length };
-  });
+  return Array.from(cells.values(), (members) => RH.builderLabelGroup(members, safe));
+};
+// Merge only callouts that could not be placed. Global cell growth used to
+// collapse a close-up into two enormous groups because one edge label failed.
+RH.mergeUnplacedBuilderLabels = function (items, safe) {
+  const placed = items.filter((it) => it.dy !== null);
+  const unplaced = items.filter((it) => it.dy === null);
+  if (!placed.length || !unplaced.length) return items;
+  const members = new Map(placed.map((it) => [it, it.members.slice()]));
+  for (const item of unplaced) {
+    const nearest = placed.reduce((best, candidate) => {
+      const d = Math.hypot(candidate.pos.x - item.pos.x, candidate.pos.y - item.pos.y);
+      return !best || d < best.distance ? { item: candidate, distance: d } : best;
+    }, null).item;
+    members.get(nearest).push(...item.members);
+  }
+  return placed.map((it) => RH.builderLabelGroup(members.get(it), safe, it.rep));
 };
 RH.labelsInFreeArea = function (entries, safe) {
   if (!safe) return entries;
@@ -3038,16 +3055,16 @@ RH.register('labels', function (ctx) {
 
     let items;
     if (allMode) {
-      // Each visible coded part is represented by exactly one callout. At a
-      // whole-house view, nearby parts share a labelled group; zooming gives
-      // them separate screen cells. Grow cells only if callouts still collide.
+      // Each visible coded part is represented by exactly one callout. Merge
+      // only labels that cannot fit, keeping other close-up codes separate.
       const scale = Number(css.domElement.style.getPropertyValue('--rh-label-scale')) || 1;
-      let cellW = 145 * scale, cellH = 62 * scale;
-      for (let pass = 0; pass < 7; pass++) {
-        items = RH.groupBuilderLabels(layoutVisible, cellW, cellH, safe);
+      items = RH.groupBuilderLabels(layoutVisible, 145 * scale, 62 * scale, safe);
+      for (let pass = 0; pass < 8; pass++) {
         hiddenByLayoutCount = placeItems(items, safe, true);
         if (!hiddenByLayoutCount) break;
-        cellW *= 1.42; cellH *= 1.32;
+        const merged = RH.mergeUnplacedBuilderLabels(items, safe);
+        if (merged === items) break;
+        items = merged;
       }
     } else {
       items = clusterVisible(visible);

@@ -2578,6 +2578,17 @@ RH.register('labels', function (ctx) {
     selectedPartId = part ? part.id : null;
     scheduleRecompute(0);
   });
+  // Escape clears selection through visibility.js without another `select`
+  // event. Follow the authoritative selection set so the full stage labels
+  // return as soon as the detail card closes.
+  ctx.on('selection', (ids) => {
+    const next = ids && ids.length === 1 ? ids[0] : null;
+    if (selectedPartId !== next) {
+      selectedPartId = next;
+      closeGroupPanel();
+      scheduleRecompute(0);
+    }
+  });
 
   // --- кнопка «Подписи» -----------------------------------------------------
   // A builder needs an unobstructed model first; labels remain one tap away.

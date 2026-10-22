@@ -3051,6 +3051,22 @@ RH.register('search', function (ctx) {
         if (p.length) matches.push({ code: v, parts: p });
       });
     }
+    // A builder may know the family but not the suffix printed in the BOM.
+    // Keep exact code and O/0-I/1 fallback ahead of this wider search;
+    // wait for three characters so typing never highlights the house.
+    if (!matches.length && norm.length >= 3) {
+      var prefixGroups = new Map();
+      ctx.parts.forEach(function (p) {
+        var code = p.data && p.data.code;
+        if (!code || code.indexOf(norm) !== 0) return;
+        var group = prefixGroups.get(code);
+        if (!group) { group = []; prefixGroups.set(code, group); }
+        group.push(p);
+      });
+      Array.from(prefixGroups.keys()).sort().forEach(function (code) {
+        matches.push({ code: code, parts: prefixGroups.get(code), byPrefix: true });
+      });
+    }
     // Coordinator follow-up (T03, due 17:00): also match `sku` on покупное
     // parts (their code, e.g. "SLD", says nothing about the catalog part --
     // "HIWIN" or "MGN12H" must still find it). Substring, same normalize().
@@ -3068,22 +3084,6 @@ RH.register('search', function (ctx) {
         g.push(p);
       });
       skuGroups.forEach(function (parts, sku) { matches.push({ code: sku, parts: parts, bySku: true }); });
-    }
-    // A builder may know the family but not the suffix printed in the BOM.
-    // Keep exact code, O/0-I/1 fallback and catalog SKU ahead of this wider
-    // search; wait for three characters so typing never highlights the house.
-    if (!matches.length && norm.length >= 3) {
-      var prefixGroups = new Map();
-      ctx.parts.forEach(function (p) {
-        var code = p.data && p.data.code;
-        if (!code || code.indexOf(norm) !== 0) return;
-        var group = prefixGroups.get(code);
-        if (!group) { group = []; prefixGroups.set(code, group); }
-        group.push(p);
-      });
-      Array.from(prefixGroups.keys()).sort().forEach(function (code) {
-        matches.push({ code: code, parts: prefixGroups.get(code), byPrefix: true });
-      });
     }
     return matches;
   }

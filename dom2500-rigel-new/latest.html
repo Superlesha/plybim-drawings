@@ -3069,6 +3069,22 @@ RH.register('search', function (ctx) {
       });
       skuGroups.forEach(function (parts, sku) { matches.push({ code: sku, parts: parts, bySku: true }); });
     }
+    // A builder may know the family but not the suffix printed in the BOM.
+    // Keep exact code, O/0-I/1 fallback and catalog SKU ahead of this wider
+    // search; wait for three characters so typing never highlights the house.
+    if (!matches.length && norm.length >= 3) {
+      var prefixGroups = new Map();
+      ctx.parts.forEach(function (p) {
+        var code = p.data && p.data.code;
+        if (!code || code.indexOf(norm) !== 0) return;
+        var group = prefixGroups.get(code);
+        if (!group) { group = []; prefixGroups.set(code, group); }
+        group.push(p);
+      });
+      Array.from(prefixGroups.keys()).sort().forEach(function (code) {
+        matches.push({ code: code, parts: prefixGroups.get(code), byPrefix: true });
+      });
+    }
     return matches;
   }
 
@@ -3196,7 +3212,7 @@ RH.register('search', function (ctx) {
     if (!state || !state.matches.length) return;
     // Sku matches never get O/0-I/1 chips -- a sku isn't a code variant, and
     // showing "HIWIN MGN12H" as a togglable chip would be pure noise.
-    var codeMatches = state.matches.filter(function (m) { return !m.bySku; });
+    var codeMatches = state.matches.filter(function (m) { return !m.bySku && !m.byPrefix; });
     if (!codeMatches.length) return;
     var usedFallback = codeMatches[0].code !== state.norm;
     if (!usedFallback) return;

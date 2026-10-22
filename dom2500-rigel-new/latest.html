@@ -351,6 +351,19 @@
   .rh-stage-list__row{width:100%;min-height:36px;padding:6px 10px;border:1px solid transparent;border-radius:var(--r-1);background:transparent;color:var(--ink);font:inherit;text-align:left;cursor:pointer}
   .rh-stage-list__row:hover,.rh-stage-list__row:focus-visible{background:var(--surface-2);border-color:var(--hairline)}
   .rh-stage-list__row[aria-current="step"]{background:var(--stamp-tint);border-color:var(--stamp);color:var(--stamp);font-weight:600}
+  .rh-stage-inventory{margin:var(--s-2) 0;border:1px solid var(--hairline);border-radius:var(--r-2);padding:0 var(--s-2) var(--s-1)}
+  .rh-stage-inventory > summary,.rh-stage-inventory__group > summary{min-height:var(--hit-desk);display:flex;align-items:center;cursor:pointer;font-weight:600}
+  .rh-stage-inventory > summary{color:var(--stamp)}
+  .rh-stage-inventory > input{box-sizing:border-box;width:100%;min-height:var(--hit-desk);border:1px solid var(--border);border-radius:var(--r-1);padding:0 var(--s-2);background:var(--surface-2);color:var(--ink);font:inherit}
+  .rh-stage-inventory .rh-note{margin:var(--s-2) 0}
+  .rh-stage-inventory__groups{max-height:280px;overflow:auto;overscroll-behavior:contain}
+  .rh-stage-inventory__group{border-top:1px solid var(--hairline)}
+  .rh-stage-inventory__group > summary{font-family:var(--font-code);font-size:13px}
+  .rh-stage-inventory__group > ol{margin:0 0 var(--s-2);padding:0;list-style:none}
+  .rh-stage-inventory__group li{padding:0}
+  .rh-stage-inventory__group button{width:100%;min-height:var(--hit-desk);padding:4px var(--s-2);border:0;border-radius:var(--r-1);background:transparent;color:var(--ink);font:12px/1.35 var(--font-ui);text-align:left;cursor:pointer}
+  .rh-stage-inventory__group button:hover,.rh-stage-inventory__group button:focus-visible{background:var(--stamp-tint);color:var(--stamp)}
+  .rh-stage-inventory [data-rh-action="stages.inventoryRestore"]{width:100%;margin:0 0 var(--s-2)}
   .rh-strata{display:flex;gap:1px;height:6px;margin:var(--s-2) 0;background:var(--ply-glue);border-radius:1px;overflow:hidden}
   .rh-strata__layer{flex:1;background:var(--hairline)}
   .rh-strata__layer[data-state="done"]:nth-child(odd){background:var(--ply-a)}
@@ -6683,6 +6696,30 @@ RH.register('stages', function (ctx) {
   }
   if (extraGrid.children.length) systemsEl.appendChild(extraSystems);
   if (systemRows.size) panelRoot.insertBefore(systemsEl, stepMetaEl);
+  // Every code in the selected stage remains reachable even when the 3D
+  // callout is occluded. Groups are cheap; individual buttons are made only
+  // when a group is opened, so a 1,000-part frame stays responsive.
+  const inventory = document.createElement('details');
+  inventory.className = 'rh-stage-inventory';
+  const inventorySummary = document.createElement('summary');
+  inventorySummary.dataset.rhAction = 'stages.inventory';
+  const inventorySearch = document.createElement('input');
+  inventorySearch.type = 'search';
+  inventorySearch.placeholder = 'Код или название детали';
+  inventorySearch.setAttribute('aria-label', 'Поиск деталей текущего этапа');
+  const inventoryStatus = document.createElement('p');
+  inventoryStatus.className = 'rh-note';
+  const inventoryRestore = document.createElement('button');
+  inventoryRestore.type = 'button';
+  inventoryRestore.className = 'rh-btn';
+  inventoryRestore.dataset.rhAction = 'stages.inventoryRestore';
+  inventoryRestore.textContent = 'Вернуть этап';
+  inventoryRestore.hidden = true;
+  const inventoryGroups = document.createElement('div');
+  inventoryGroups.className = 'rh-stage-inventory__groups';
+  inventory.append(inventorySummary, inventorySearch, inventoryStatus,
+    inventoryRestore, inventoryGroups);
+  if (manifest) panelRoot.appendChild(inventory);
   panelRoot.appendChild(stageList);
 
   const animateBtn = document.createElement('button');
@@ -6715,6 +6752,94 @@ RH.register('stages', function (ctx) {
   let stepIdx = 0;
   let prevHiddenSet = null;
   let selectedNodeId = null;
+  let inventoryIsolation = false;
+
+  function restoreInventory() {
+    if (!inventoryIsolation) return;
+    if (ctx.visibility) ctx.visibility.restoreIsolation();
+    inventoryIsolation = false;
+    inventoryRestore.hidden = true;
+    inventoryStatus.textContent = 'Этап восстановлен. Выберите другую деталь.';
+  }
+
+  function inventoryCode(part) {
+    const data = part.data || {};
+    return String(data.role === 'покупное' && data.sku || data.code || '').trim();
+  }
+
+  function renderInventory() {
+    if (!manifest) return;
+    const step = stageActive && mode === 'stage' ? mainSteps[stepIdx] : null;
+    inventory.hidden = !step;
+    if (!step) return;
+    const coded = step.parts.filter((part) => inventoryCode(part));
+    const hiddenCount = coded.filter((part) => ctx.getPartState && ctx.getPartState(part.id) === 'hidden').length;
+    inventorySummary.textContent = 'Детали этапа · ' + coded.length + ' с кодом' +
+      (hiddenCount ? ' · ' + hiddenCount + ' скрыты' : '');
+    if (!inventory.open) return;
+    const query = inventorySearch.value.trim().toLocaleLowerCase('ru');
+    const groups = new Map();
+    for (const part of coded) {
+      const code = inventoryCode(part);
+      const name = String(part.data && part.data.name || '');
+      if (query && !(code + ' ' + name).toLocaleLowerCase('ru').includes(query)) continue;
+      if (!groups.has(code)) groups.set(code, []);
+      groups.get(code).push(part);
+    }
+    inventoryGroups.replaceChildren();
+    inventoryStatus.textContent = groups.size
+      ? Array.from(groups.values()).reduce((n, parts) => n + parts.length, 0) +
+        ' деталей · выберите код, затем деталь. Просмотр отдельно можно отменить.'
+      : 'По этому запросу деталей нет.';
+    for (const [code, parts] of Array.from(groups).sort((a, b) => a[0].localeCompare(b[0], 'ru', { numeric: true }))) {
+      const group = document.createElement('details');
+      group.className = 'rh-stage-inventory__group';
+      const summary = document.createElement('summary');
+      const reference = parts.every((part) => RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data));
+      summary.textContent = code + ' × ' + parts.length + (reference ? ' · учёт' : '');
+      group.appendChild(summary);
+      group.addEventListener('toggle', () => {
+        if (!group.open || group.children.length > 1) return;
+        const list = document.createElement('ol');
+        for (const [index, part] of parts.entries()) {
+          const item = document.createElement('li');
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.dataset.rhAction = 'stages.inventoryPart';
+          button.textContent = (index + 1) + '. ' + String(part.data && part.data.name || 'Деталь') +
+            (RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data) ? ' · учёт' : '');
+          button.title = 'Показать отдельно и приблизить ' + code;
+          button.addEventListener('click', () => {
+            restoreInventory();
+            if (ctx.getPartState && ctx.getPartState(part.id) === 'hidden') {
+              inventoryStatus.textContent = code + ': деталь скрыта переключателем системы. Включите систему выше.';
+              return;
+            }
+            ctx.emit('select', { part, pointerType: 'inventory' });
+            if (ctx.selection) ctx.selection.set([part.id]);
+            if (ctx.visibility) {
+              ctx.visibility.isolateSelected();
+              inventoryIsolation = true;
+              inventoryRestore.hidden = false;
+            }
+            if (ctx.views) ctx.views.zoomSelected();
+            inventoryStatus.textContent = code + ': показана отдельно. Нажмите «Вернуть этап» для общего вида.';
+          });
+          item.appendChild(button);
+          list.appendChild(item);
+        }
+        group.appendChild(list);
+      });
+      inventoryGroups.appendChild(group);
+    }
+  }
+
+  inventory.addEventListener('toggle', renderInventory);
+  inventorySearch.addEventListener('input', renderInventory);
+  inventoryRestore.addEventListener('click', () => {
+    restoreInventory();
+    if (ctx.views) ctx.views.fitVisible();
+  });
   const requestedView = new URLSearchParams(location.search).get('stage_view');
   // A builder must see the already assembled supports. Legacy analytical
   // ?stage_view=only links are normalized to the cumulative construction view.
@@ -6749,6 +6874,7 @@ RH.register('stages', function (ctx) {
   function render() {
     const { steps } = activeView();
     const step = steps[stepIdx];
+    renderInventory();
     showAllBtn.setAttribute('aria-pressed', String(!stageActive));
     nameEl.textContent = stageActive && step ? step.name : (manifest ? 'Все этапы' : 'Весь дом');
     countEl.textContent = stageActive && steps.length ? (stepIdx + 1) + ' из ' + steps.length : '';
@@ -6844,12 +6970,16 @@ RH.register('stages', function (ctx) {
   }
   function closePanel() {
     if (!panelOpen) return;
+    restoreInventory();
     panelOpen = false;
     toggleBtn.setAttribute('aria-pressed', 'false');
     stopAnimation();
     if (panelRoot.parentNode) panelRoot.parentNode.removeChild(panelRoot);
   }
   function showAll() {
+    restoreInventory();
+    inventorySearch.value = '';
+    inventory.open = false;
     stopAnimation();
     mode = 'stage'; currentNodeId = null; stageActive = false;
     backBtn.hidden = true; nodeTitleEl.hidden = true;
@@ -6869,6 +6999,9 @@ RH.register('stages', function (ctx) {
     if (hidden.length) ctx.setState('systems', hidden, 'hidden');
   }
   function goToMainStep(idx) {
+    restoreInventory();
+    inventorySearch.value = '';
+    inventory.open = false;
     mode = 'stage'; currentNodeId = null;
     backBtn.hidden = true; nodeTitleEl.hidden = true;
     stepIdx = Math.max(0, Math.min(mainSteps.length - 1, idx));
@@ -6880,6 +7013,7 @@ RH.register('stages', function (ctx) {
     ctx.ui.panel.scrollTop = 0;
   }
   function enterNodeAssembly(nodeId) {
+    restoreInventory();
     const view = buildNodeView(nodeId);
     if (!view.steps.length) return;
     mode = 'node'; currentNodeId = nodeId; stepIdx = 0;
@@ -6912,6 +7046,9 @@ RH.register('stages', function (ctx) {
   });
   showAllBtn.addEventListener('click', showAll);
   prevBtn.addEventListener('click', () => {
+    restoreInventory();
+    inventorySearch.value = '';
+    inventory.open = false;
     stepIdx = Math.max(0, stepIdx - 1);
     applyAndMaybeAnimate();
     // Builder navigation is a walkthrough: show the whole result of each step.
@@ -6919,6 +7056,9 @@ RH.register('stages', function (ctx) {
     if (manifest && ctx.views) ctx.views.fitVisible();
   });
   nextBtn.addEventListener('click', () => {
+    restoreInventory();
+    inventorySearch.value = '';
+    inventory.open = false;
     const { steps } = activeView();
     stepIdx = stageActive ? Math.min(steps.length - 1, stepIdx + 1) : 0;
     applyAndMaybeAnimate();
@@ -6969,7 +7109,7 @@ RH.register('stages', function (ctx) {
     if (idx >= 0 && idx < mainSteps.length) goToMainStep(idx);
     else if (manifest) goToMainStep(0);
   } else if (manifest) goToMainStep(0);
-  if (manifest) applySystems();
+  if (manifest) { applySystems(); renderInventory(); }
 });
 </script>
 <script >// T14 — выбор, изоляция, скрыть/показать (как в Rhino).
@@ -7079,6 +7219,10 @@ RH.register('visibility', function (ctx) {
     for (const id of prev) hiddenIds.add(id);
     applyHidden();
   }
+
+  // The construction inventory uses the same reversible isolation as the
+  // toolbar, so a part hidden behind the frame can be inspected by code.
+  ctx.visibility = { isolateSelected: isolate, restoreIsolation: back };
 
   function toggleMultiMode() {
     multiMode = !multiMode;

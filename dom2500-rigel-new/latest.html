@@ -328,6 +328,7 @@
   .rh-stepper{display:flex;align-items:center;gap:var(--s-2);min-height:48px}
   .rh-stepper > span:not(.rh-count){flex:1;min-width:0;font-size:16px;font-weight:600;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
   .rh-stage-meta{margin:0;color:var(--ink-2);font-size:13px;line-height:1.45}
+  .rh-stage-inventory-jump{width:100%;justify-content:flex-start;color:var(--stamp);border-color:var(--stamp);background:var(--stamp-tint)}
   .rh-stage-review{margin:var(--s-2) 0 0;padding-left:var(--s-2);border-left:2px solid var(--stamp);color:var(--ink-2);font-size:12px;line-height:1.35}
   .rh-stage-focus{display:flex;width:100%;margin-top:var(--s-3);white-space:normal;text-align:center;line-height:1.25}
   .rh-stage-focus[hidden]{display:none}
@@ -6649,6 +6650,12 @@ RH.register('stages', function (ctx) {
   const stepMetaEl = document.createElement('p');
   stepMetaEl.className = 'rh-stage-meta';
   panelRoot.appendChild(stepMetaEl);
+  const inventoryJump = document.createElement('button');
+  inventoryJump.type = 'button';
+  inventoryJump.className = 'rh-btn rh-stage-inventory-jump';
+  inventoryJump.dataset.rhAction = 'stages.inventoryJump';
+  inventoryJump.textContent = 'Найти деталь этапа';
+  if (manifest) panelRoot.insertBefore(inventoryJump, stepMetaEl);
   if (manifest && manifest.engineeringErectionApproval !== true &&
       manifest.esStageCorrectionSource?.engineeringErectionApproval !== true) {
     const reviewNote = document.createElement('p');
@@ -6814,6 +6821,12 @@ RH.register('stages', function (ctx) {
   inventory.append(inventorySummary, inventorySearch, inventoryStatus,
     inventoryIsolate, inventoryRestore, inventoryGroups);
   if (manifest) panelRoot.appendChild(inventory);
+  inventoryJump.addEventListener('click', () => {
+    inventory.open = true;
+    renderInventory();
+    inventory.scrollIntoView({ block: 'start', behavior: 'auto' });
+    inventorySearch.focus({ preventScroll: true });
+  });
   panelRoot.appendChild(stageList);
 
   const animateBtn = document.createElement('button');
@@ -7038,6 +7051,7 @@ RH.register('stages', function (ctx) {
     revealInteriorBtn.textContent = interiorFocused ? 'Вернуть общий вид' : 'Показать внутренние планки';
     interiorFocusNote.hidden = !interiorFocused;
     showAllBtn.setAttribute('aria-pressed', String(!stageActive));
+    inventoryJump.hidden = !(manifest && stageActive && mode === 'stage');
     nameEl.textContent = stageActive && step ? step.name : (manifest ? 'Все этапы' : 'Весь дом');
     countEl.textContent = stageActive && steps.length ? (stepIdx + 1) + ' из ' + steps.length : '';
     stepMetaEl.textContent = !stageActive ? ctx.parts.length + (manifest

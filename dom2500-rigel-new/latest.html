@@ -2309,7 +2309,6 @@ RH.register('labels', function (ctx) {
     const width = Math.min(320, Math.max(220, bounds.width - 24));
     groupPanel.style.width = width + 'px';
     groupPanel.style.left = Math.max(12, Math.min(event.clientX - bounds.left + 12, bounds.width - width - 12)) + 'px';
-    groupPanel.style.top = Math.max(12, Math.min(event.clientY - bounds.top + 12, bounds.height - 290)) + 'px';
     const header = document.createElement('div');
     header.className = 'rh-label-group-panel__head';
     const title = document.createElement('strong');
@@ -2346,7 +2345,8 @@ RH.register('labels', function (ctx) {
         button.type = 'button';
         button.title = name;
         button.setAttribute('aria-label', code + ' — ' + name);
-        button.textContent = name.startsWith(code + '.') ? name.slice(code.length + 1) : name;
+        button.textContent = (i + 1) + '/' + members.length + ' · ' +
+          (name.startsWith(code + '.') ? name.slice(code.length + 1) : name);
         button.addEventListener('click', () => {
           closeGroupPanel();
           ctx.emit('select', { part: entry.part, ctrl: false, shift: false, alt: false, pointerType: 'mouse' });
@@ -2372,6 +2372,12 @@ RH.register('labels', function (ctx) {
     });
     groupPanel.replaceChildren(header, filter, list);
     groupPanel.hidden = false;
+    // Keep the last code reachable above the bottom tool dock, even when the
+    // clicked tag sits low in the viewport or the search field is visible.
+    const panelHeight = groupPanel.getBoundingClientRect().height;
+    const bottomLimit = bounds.height - 72;
+    groupPanel.style.top = Math.max(12, Math.min(event.clientY - bounds.top + 12,
+      bottomLimit - panelHeight - 12)) + 'px';
     close.focus();
   }
   groupPanel.addEventListener('pointerdown', (e) => e.stopPropagation());

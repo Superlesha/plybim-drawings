@@ -436,6 +436,14 @@
   .rh-labels-layer .rh-callout{pointer-events:auto;cursor:pointer;touch-action:none}
   .rh-label-stack-hint{position:absolute;z-index:10000;max-width:230px;padding:5px 8px;background:#202127;color:#fff;border-radius:4px;font:500 12px/1.35 var(--font-code);pointer-events:none;box-shadow:0 2px 10px #0005}
   .rh-label-stack-hint[hidden]{display:none}
+  .rh-label-group-panel{position:absolute;z-index:10002;box-sizing:border-box;padding:10px;background:var(--c-label-bg);color:var(--c-label-ink);border:1px solid var(--c-leader);border-radius:6px;box-shadow:0 8px 28px #0005;font:13px/1.35 var(--font-ui)}
+  .rh-label-group-panel[hidden]{display:none}
+  .rh-label-group-panel__head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .rh-label-group-panel__head button{border:1px solid var(--c-leader);border-radius:4px;background:transparent;color:inherit;padding:5px 8px;cursor:pointer}
+  .rh-label-group-panel p{margin:7px 0;color:var(--c-leader)}
+  .rh-label-group-panel__list{max-height:210px;overflow:auto;display:grid;gap:3px}
+  .rh-label-group-panel__list button{width:100%;text-align:left;padding:7px;border:1px solid transparent;border-radius:4px;background:transparent;color:inherit;font:12px/1.3 var(--font-code);cursor:pointer}
+  .rh-label-group-panel__list button:hover,.rh-label-group-panel__list button:focus-visible,.rh-label-group-panel__head button:focus-visible{background:#7773;outline:2px solid currentColor;outline-offset:1px}
   /* T13b: размер сносок -- множитель --rh-label-scale (ползунок удержания «Подписи»); выноска держит низ на якоре */
   .rh-labels-layer .rh-callout{font-size:calc(12px * var(--rh-label-scale,1));margin-top:calc(-18px - 7.8px * var(--rh-label-scale,1))}
   .rh-labels-layer .rh-callout__n{font-size:calc(11px * var(--rh-label-scale,1))}
@@ -2177,6 +2185,30 @@ RH.pickFromLabelStack = function (stack, clickedId, previous, x, y) {
   return { entry: stack[index], index, count: stack.length,
     state: { signature, index, x, y } };
 };
+// A whole stage can contain hundreds of visible parts. Every part belongs to
+// exactly one screen-space group; zooming spreads the anchors and splits the
+// groups naturally. No fixed quota silently drops parts.
+RH.groupBuilderLabels = function (visible, cellWidth, cellHeight, safe) {
+  const cells = new Map();
+  for (const entry of visible) {
+    const key = Math.floor(entry._pos.x / cellWidth) + ':' + Math.floor(entry._pos.y / cellHeight);
+    if (!cells.has(key)) cells.set(key, []);
+    cells.get(key).push(entry);
+  }
+  return Array.from(cells.values(), (members) => {
+    const inSafe = safe ? members.filter((e) => e._pos.x >= safe.l && e._pos.x <= safe.r &&
+      e._pos.y >= safe.t && e._pos.y <= safe.b) : members;
+    const candidates = inSafe.length ? inSafe : members;
+    const selected = candidates.find((e) => e.state === 'selected' || e.state === 'found-selected');
+    const rep = selected || candidates.reduce((best, e) => e._priority > best._priority ? e : best);
+    const codes = Array.from(new Set(members.map((e) => e.code))).sort();
+    const displayCode = codes.length === 1 ? codes[0] :
+      codes.length === 2 ? codes.join(' / ') : 'Кодов: ' + codes.length;
+    return { code: displayCode, displayCode, members, rep, priority: rep._priority,
+      pos: rep._pos, dy: 0, nText: (members.length > 1 ? '×' + members.length : '') +
+        (members.every((e) => e.referenceOnly) ? '*' : ''), codeCount: codes.length };
+  });
+};
 RH.register('labels', function (ctx) {
   const THREE = ctx.THREE;
   const { CSS2DRenderer, CSS2DObject } = ctx.addons;
@@ -2253,6 +2285,7 @@ RH.register('labels', function (ctx) {
   const entries = [];
   const byId = new Map();      // part.id -> entry
   let shown = [];
+  let shownGroups = new Map();
   let stageLabelIds = ctx.labelStageIds || null;
   let selectedPartId = null;
   let lastStackPick = null;
@@ -2262,6 +2295,52 @@ RH.register('labels', function (ctx) {
   stackHint.setAttribute('role', 'status');
   stackHint.hidden = true;
   css.domElement.appendChild(stackHint);
+  const groupPanel = document.createElement('section');
+  groupPanel.className = 'rh-label-group-panel';
+  groupPanel.setAttribute('aria-label', 'Детали в группе подписей');
+  groupPanel.hidden = true;
+  ctx.container.appendChild(groupPanel);
+  function closeGroupPanel() { groupPanel.hidden = true; groupPanel.replaceChildren(); }
+  function openGroupPanel(item, event) {
+    const bounds = ctx.container.getBoundingClientRect();
+    const width = Math.min(320, Math.max(220, bounds.width - 24));
+    groupPanel.style.width = width + 'px';
+    groupPanel.style.left = Math.max(12, Math.min(event.clientX - bounds.left + 12, bounds.width - width - 12)) + 'px';
+    groupPanel.style.top = Math.max(12, Math.min(event.clientY - bounds.top + 12, bounds.height - 290)) + 'px';
+    const header = document.createElement('div');
+    header.className = 'rh-label-group-panel__head';
+    const title = document.createElement('strong');
+    title.textContent = 'Деталей: ' + item.members.length + ' · кодов: ' + item.codeCount;
+    const close = document.createElement('button');
+    close.type = 'button'; close.textContent = 'Закрыть';
+    close.setAttribute('aria-label', 'Закрыть список деталей');
+    close.addEventListener('click', closeGroupPanel);
+    header.append(title, close);
+    const note = document.createElement('p');
+    note.textContent = 'Выберите деталь, чтобы подсветить её в модели.';
+    const list = document.createElement('div');
+    list.className = 'rh-label-group-panel__list';
+    const ordered = item.members.slice().sort((a, b) =>
+      a.code.localeCompare(b.code) || a._pos.y - b._pos.y || a._pos.x - b._pos.x);
+    for (let i = 0; i < ordered.length; i++) {
+      const entry = ordered[i];
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = entry.code + (entry.referenceOnly ? ' · учёт' : '') +
+        ' — ' + String(entry.part.data.name || entry.part.node.name || 'деталь ' + (i + 1));
+      button.addEventListener('click', () => {
+        closeGroupPanel();
+        ctx.emit('select', { part: entry.part, ctrl: false, shift: false, alt: false, pointerType: 'mouse' });
+      });
+      list.appendChild(button);
+    }
+    groupPanel.replaceChildren(header, note, list);
+    groupPanel.hidden = false;
+    close.focus();
+  }
+  groupPanel.addEventListener('pointerdown', (e) => e.stopPropagation());
+  groupPanel.addEventListener('wheel', (e) => e.stopPropagation());
+  groupPanel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeGroupPanel(); e.stopPropagation(); } });
   function showStackHint(pick, e) {
     if (stackHintTimer) clearTimeout(stackHintTimer);
     if (pick.count < 2) { stackHint.hidden = true; return; }
@@ -2332,6 +2411,8 @@ RH.register('labels', function (ctx) {
         const stack = RH.visibleLabelStackAt(shown, e.clientX, e.clientY);
         const choice = RH.pickFromLabelStack(stack, part.id, lastStackPick, e.clientX, e.clientY);
         if (choice) { picked = choice.entry.part; lastStackPick = choice.state; showStackHint(choice, e); }
+        const group = shownGroups.get(picked.id);
+        if (group && group.members.length > 1) { openGroupPanel(group, e); return; }
       }
       ctx.emit('select', { part: picked, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, pointerType: e.pointerType });
     };
@@ -2373,7 +2454,7 @@ RH.register('labels', function (ctx) {
       part, code, el, codeEl, nEl, co, autoEligible,
       referenceOnly: !autoEligible,
       isSku: part.data.role === 'покупное' && !!part.data.sku,
-      nText: '', zIndex: '', // T31d: что уже записано в DOM -- писать только разницу
+      nText: '', renderCode: code, zIndex: '', // T31d: что уже записано в DOM -- писать только разницу
       fallbackCenter: bc.clone(),
       pixelId, idMaterial,
       worldSize: Math.max(bs.length(), 1e-6), // T18: приоритет разводки
@@ -2427,18 +2508,21 @@ RH.register('labels', function (ctx) {
     }
   });
 
-  ctx.on('camera', () => { lastStackPick = null; stackHint.hidden = true; scheduleRecompute(0); });
+  ctx.on('camera', () => { lastStackPick = null; stackHint.hidden = true; closeGroupPanel(); scheduleRecompute(0); });
   // During a section-handle drag the expensive ID pass is deferred. Hide the
   // previous labels immediately so a now-fully-clipped part cannot keep its tag.
   ctx.on('section', () => {
     RH.invalidateLabelEntries(entries);
     shown = [];
+    shownGroups.clear();
+    closeGroupPanel();
     lastShown = [];
     scheduleRecompute(0);
   });
   ctx.on('stage-labels', (ids) => {
     lastStackPick = null;
     stackHint.hidden = true;
+    closeGroupPanel();
     stageLabelIds = ids;
     if (enabled && allMode) ctx.emit('labels-coverage', { active: true, pending: true });
     for (const e of entries) if (ids && !ids.has(e.part.id) &&
@@ -2477,6 +2561,8 @@ RH.register('labels', function (ctx) {
       e.el.style.display = 'none';
     }
     shown = [];
+    shownGroups.clear();
+    closeGroupPanel();
   }
   function resetAllLabels() {
     for (const e of entries) {
@@ -2484,6 +2570,8 @@ RH.register('labels', function (ctx) {
       e.el.style.display = 'none';
     }
     shown = [];
+    shownGroups.clear();
+    closeGroupPanel();
   }
   function setEnabled(next) {
     enabled = next;
@@ -2762,11 +2850,12 @@ RH.register('labels', function (ctx) {
   // добавляются в слой разом, одно чтение (один reflow) на всю пачку, копии
   // убираются. Раскладка (placeItems/tryPlace) читает только кэш -- ноль
   // чтений геометрии DOM (проба T31d считает их обёрткой).
-  function sizeKey(e, nText) { return (e.isSku ? 's' : 'c') + (e.state === 'highlight' ? 'f' : '') + '|' + e.code + '|' + nText; }
+  function sizeKey(e, displayCode, nText) { return (e.isSku ? 's' : 'c') +
+    (e.state === 'highlight' ? 'f' : '') + '|' + displayCode + '|' + nText; }
   function measureSizes(list) { // list: [{rep, nText}] -- дописывает .w/.h
     const miss = new Map();
     for (const it of list) {
-      it.key = sizeKey(it.rep, it.nText);
+      it.key = sizeKey(it.rep, it.displayCode || it.code, it.nText);
       if (sizeCache.has(it.key) || miss.has(it.key)) continue;
       const m = document.createElement('div');
       m.className = 'rh-callout';
@@ -2775,7 +2864,7 @@ RH.register('labels', function (ctx) {
       if (it.rep.isSku) m.dataset.sku = 'true';
       if (it.rep.state === 'highlight') m.dataset.state = 'found';
       const l = document.createElement('span'); l.className = 'rh-callout__leader';
-      const c = document.createElement('span'); c.className = 'rh-callout__code'; c.textContent = it.rep.code;
+      const c = document.createElement('span'); c.className = 'rh-callout__code'; c.textContent = it.displayCode || it.code;
       const n = document.createElement('span'); n.className = 'rh-callout__n'; n.textContent = it.nText;
       m.append(l, c, n);
       miss.set(it.key, m);
@@ -2799,8 +2888,8 @@ RH.register('labels', function (ctx) {
     for (const it of list) { const sz = sizeCache.get(it.key); it.w = sz.w; it.h = sz.h; }
   }
 
-  function placeItems(items, safe) {
-    for (const it of items) it.nText = it.members.length > 1 ? '×' + it.members.length : '';
+  function placeItems(items, safe, preserveText) {
+    if (!preserveText) for (const it of items) it.nText = it.members.length > 1 ? '×' + it.members.length : '';
     measureSizes(items);
     stamp('measure');
     phase = 'layout';
@@ -2883,10 +2972,22 @@ RH.register('labels', function (ctx) {
       e._priority = e.worldSize / Math.max(e._dist, 1e-6); // крупная или близкая -> больше
     }
 
-    const items = allMode
-      ? visible.map((e) => ({ code: e.code, members: [e], rep: e,
-        priority: e._priority, pos: e._pos, dy: 0, nText: e.referenceOnly ? '*' : '' }))
-      : clusterVisible(visible);
+    let items;
+    if (allMode) {
+      // Each visible coded part is represented by exactly one callout. At a
+      // whole-house view, nearby parts share a labelled group; zooming gives
+      // them separate screen cells. Grow cells only if callouts still collide.
+      const scale = Number(css.domElement.style.getPropertyValue('--rh-label-scale')) || 1;
+      let cellW = 145 * scale, cellH = 62 * scale;
+      for (let pass = 0; pass < 7; pass++) {
+        items = RH.groupBuilderLabels(visible, cellW, cellH, safe);
+        hiddenByLayoutCount = placeItems(items, safe, true);
+        if (!hiddenByLayoutCount) break;
+        cellW *= 1.42; cellH *= 1.32;
+      }
+    } else {
+      items = clusterVisible(visible);
+    }
     if (!allMode && ctx.asset && ctx.asset.stage_manifest) {
       // A builder needs room to see the joint behind each callout. Dense roof
       // framing can otherwise fill a phone with dozens of labels at once.
@@ -2907,7 +3008,7 @@ RH.register('labels', function (ctx) {
       }
       items.splice(0, items.length, ...diverse);
     }
-    hiddenByLayoutCount = allMode ? 0 : placeItems(items, safe);
+    if (!allMode) hiddenByLayoutCount = placeItems(items, safe);
     stamp('layout');
     phase = 'commit';
 
@@ -2917,12 +3018,19 @@ RH.register('labels', function (ctx) {
     // (display/transform/zIndex всем 4.4k объектам).
     const shownReps = new Map(); // entry -> item
     for (const it of items) if (it.dy !== null) shownReps.set(it.rep, it);
+    shownGroups = new Map(Array.from(shownReps, ([entry, item]) => [entry.part.id, item]));
     const nowShown = [];
     for (const e of entries) {
       const it = shownReps.get(e);
       const show = it !== undefined;
       if (show) {
         e.co.position.copy(worldPositionForOffset(e.anchorPoint, it.dy, H));
+        const displayCode = it.displayCode || it.code;
+        if (e.renderCode !== displayCode) { e.renderCode = displayCode; e.codeEl.textContent = displayCode; }
+        const description = it.members.length > 1 ?
+          'Деталей: ' + it.members.length + ', кодов: ' + it.codeCount + '. Нажмите, чтобы выбрать деталь.' :
+          e.referenceOnly ? e.code + ' — код для учёта, без фрезерной маркировки' : e.code;
+        if (e.el.title !== description) { e.el.title = description; e.el.setAttribute('aria-label', description); }
         if (e.nText !== it.nText) { e.nText = it.nText; e.nEl.textContent = it.nText; }
         nowShown.push(e);
       } else if (e.co.visible) {
@@ -2955,7 +3063,9 @@ RH.register('labels', function (ctx) {
     lastShown = items.filter((it) => it.dy !== null).map((it) => it.rep.part.id + '|' + it.dy + '|' + it.members.length).sort();
     if (allMode) ctx.emit('labels-coverage', {
       active: true, pending: false, shown: nowShown.length,
-      referenceShown: nowShown.filter((e) => e.referenceOnly).length,
+      represented: Array.from(shownReps.values()).reduce((n, it) => n + it.members.length, 0),
+      visible: visible.length,
+      referenceShown: visible.filter((e) => e.referenceOnly).length,
       total: stageLabelIds ? entries.filter((e) => stageLabelIds.has(e.part.id)).length : entries.length,
     });
   }
@@ -6714,8 +6824,9 @@ RH.register('stages', function (ctx) {
     if (labelCoverageNote.hidden) return;
     labelCoverageNote.textContent = labelCoverage.pending
       ? 'Обновляем подписи для этого вида…'
-      : 'На текущем виде: ' + labelCoverage.shown + ' из ' + labelCoverage.total +
-        ' подписей этапа. Все коды — в списке деталей ниже.' +
+      : 'На текущем виде: ' + (labelCoverage.represented ?? labelCoverage.shown) +
+        ' из ' + labelCoverage.total + ' деталей в ' + labelCoverage.shown +
+        ' подписях. Нажмите группу, чтобы выбрать деталь; все коды есть в списке ниже.' +
         (labelCoverage.referenceShown ? ' * — код для учёта, без фрезерной маркировки.' : '');
   });
   if (manifest && manifest.engineeringErectionApproval !== true &&

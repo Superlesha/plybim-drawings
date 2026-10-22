@@ -7092,8 +7092,8 @@ RH.register('stages', function (ctx) {
       if (s.prerequisites.length) row.title = 'Порядок просмотра после: ' + s.prerequisites.join(', ');
       row.addEventListener('click', () => {
         goToMainStep(i);
-        // A direct jump should show the chosen assembly in full.
-        if (ctx.views) ctx.views.zoomExtents();
+        // Fit the chosen assembly without losing the builder's comparison angle.
+        if (ctx.views) ctx.views.fitVisible();
       });
       stageList.appendChild(row);
     });

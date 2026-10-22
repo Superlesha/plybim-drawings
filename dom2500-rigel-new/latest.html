@@ -2832,7 +2832,7 @@ RH.register('labels', function (ctx) {
 
     const items = allMode
       ? visible.map((e) => ({ code: e.code, members: [e], rep: e,
-        priority: e._priority, pos: e._pos, dy: 0, nText: e.referenceOnly ? 'учёт' : '' }))
+        priority: e._priority, pos: e._pos, dy: 0, nText: e.referenceOnly ? '*' : '' }))
       : clusterVisible(visible);
     if (!allMode && ctx.asset && ctx.asset.stage_manifest) {
       // A builder needs room to see the joint behind each callout. Dense roof
@@ -2902,6 +2902,7 @@ RH.register('labels', function (ctx) {
     lastShown = items.filter((it) => it.dy !== null).map((it) => it.rep.part.id + '|' + it.dy + '|' + it.members.length).sort();
     if (allMode) ctx.emit('labels-coverage', {
       active: true, pending: false, shown: nowShown.length,
+      referenceShown: nowShown.filter((e) => e.referenceOnly).length,
       total: stageLabelIds ? entries.filter((e) => stageLabelIds.has(e.part.id)).length : entries.length,
     });
   }
@@ -6659,7 +6660,8 @@ RH.register('stages', function (ctx) {
     labelCoverageNote.textContent = labelCoverage.pending
       ? 'Обновляем подписи для этого вида…'
       : 'На текущем виде: ' + labelCoverage.shown + ' из ' + labelCoverage.total +
-        ' подписей этапа. Все коды — в списке деталей ниже.';
+        ' подписей этапа. Все коды — в списке деталей ниже.' +
+        (labelCoverage.referenceShown ? ' * — код для учёта, без фрезерной маркировки.' : '');
   });
   if (manifest && manifest.engineeringErectionApproval !== true &&
       manifest.esStageCorrectionSource?.engineeringErectionApproval !== true) {

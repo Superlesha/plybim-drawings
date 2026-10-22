@@ -329,6 +329,7 @@
   .rh-stepper > span:not(.rh-count){flex:1;min-width:0;font-size:16px;font-weight:600;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
   .rh-stage-meta{margin:0;color:var(--ink-2);font-size:13px;line-height:1.45}
   .rh-stage-inventory-jump{width:100%;justify-content:flex-start;color:var(--stamp);border-color:var(--stamp);background:var(--stamp-tint)}
+  .rh-stage-label-coverage{margin:var(--s-1) 0 var(--s-2);color:var(--ink-2);font-size:12px;line-height:1.35}
   .rh-stage-review{margin:var(--s-2) 0 0;padding-left:var(--s-2);border-left:2px solid var(--stamp);color:var(--ink-2);font-size:12px;line-height:1.35}
   .rh-stage-focus{display:flex;width:100%;margin-top:var(--s-3);white-space:normal;text-align:center;line-height:1.25}
   .rh-stage-focus[hidden]{display:none}
@@ -2386,6 +2387,7 @@ RH.register('labels', function (ctx) {
   });
   ctx.on('stage-labels', (ids) => {
     stageLabelIds = ids;
+    if (enabled && allMode) ctx.emit('labels-coverage', { active: true, pending: true });
     for (const e of entries) if (ids && !ids.has(e.part.id) &&
         !(e.part.id === selectedPartId && (e.state === 'selected' || e.state === 'found-selected'))) {
       e.co.visible = false;
@@ -2436,6 +2438,7 @@ RH.register('labels', function (ctx) {
     btn.setAttribute('aria-pressed', String(enabled));
     if (allBtn) allBtn.setAttribute('aria-pressed', String(allMode));
     css.domElement.style.display = enabled ? '' : 'none';
+    ctx.emit('labels-coverage', { active: enabled && allMode, pending: enabled && allMode });
     if (enabled) scheduleRecompute(0);
   }
   btn.addEventListener('click', () => {
@@ -2913,6 +2916,10 @@ RH.register('labels', function (ctx) {
     stamp('commit');
     phase = null; lastCommitAt = performance.now();
     lastShown = items.filter((it) => it.dy !== null).map((it) => it.rep.part.id + '|' + it.dy + '|' + it.members.length).sort();
+    if (allMode) ctx.emit('labels-coverage', {
+      active: true, pending: false, shown: nowShown.length,
+      total: stageLabelIds ? entries.filter((e) => stageLabelIds.has(e.part.id)).length : entries.length,
+    });
   }
 
   // T20: в кадре -- проекция только показанных карточек той же формулой, что
@@ -6656,6 +6663,20 @@ RH.register('stages', function (ctx) {
   inventoryJump.dataset.rhAction = 'stages.inventoryJump';
   inventoryJump.textContent = 'Найти деталь этапа';
   if (manifest) panelRoot.insertBefore(inventoryJump, stepMetaEl);
+  const labelCoverageNote = document.createElement('p');
+  labelCoverageNote.className = 'rh-stage-label-coverage';
+  labelCoverageNote.hidden = true;
+  if (manifest) panelRoot.insertBefore(labelCoverageNote, stepMetaEl);
+  let labelCoverage = null;
+  ctx.on('labels-coverage', (coverage) => {
+    labelCoverage = coverage && coverage.active ? coverage : null;
+    labelCoverageNote.hidden = !(labelCoverage && stageActive && mode === 'stage');
+    if (labelCoverageNote.hidden) return;
+    labelCoverageNote.textContent = labelCoverage.pending
+      ? 'Обновляем подписи для этого вида…'
+      : 'На текущем виде: ' + labelCoverage.shown + ' из ' + labelCoverage.total +
+        ' подписей этапа. Все коды — в списке деталей ниже.';
+  });
   if (manifest && manifest.engineeringErectionApproval !== true &&
       manifest.esStageCorrectionSource?.engineeringErectionApproval !== true) {
     const reviewNote = document.createElement('p');
@@ -7052,6 +7073,7 @@ RH.register('stages', function (ctx) {
     interiorFocusNote.hidden = !interiorFocused;
     showAllBtn.setAttribute('aria-pressed', String(!stageActive));
     inventoryJump.hidden = !(manifest && stageActive && mode === 'stage');
+    labelCoverageNote.hidden = !(labelCoverage && stageActive && mode === 'stage');
     nameEl.textContent = stageActive && step ? step.name : (manifest ? 'Все этапы' : 'Весь дом');
     countEl.textContent = stageActive && steps.length ? (stepIdx + 1) + ' из ' + steps.length : '';
     stepMetaEl.textContent = !stageActive ? ctx.parts.length + (manifest

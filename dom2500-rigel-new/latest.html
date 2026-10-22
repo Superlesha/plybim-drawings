@@ -329,6 +329,8 @@
   .rh-stepper > span:not(.rh-count){flex:1;min-width:0;font-size:16px;font-weight:600;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
   .rh-stage-meta{margin:0;color:var(--ink-2);font-size:13px;line-height:1.45}
   .rh-stage-review{margin:var(--s-2) 0 0;padding-left:var(--s-2);border-left:2px solid var(--stamp);color:var(--ink-2);font-size:12px;line-height:1.35}
+  .rh-stage-focus{display:flex;width:100%;margin-top:var(--s-3);white-space:normal;text-align:center;line-height:1.25}
+  .rh-stage-focus[hidden]{display:none}
   .rh-stage-mode{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-2);margin:var(--s-2) 0 var(--s-3)}
   .rh-stage-mode > .rh-btn{min-width:0;padding-inline:var(--s-2);font-size:13px}
   .rh-stage-mode > [data-rh-action="stages.modeGhost"]{grid-column:1/-1}
@@ -6709,6 +6711,13 @@ RH.register('stages', function (ctx) {
   }
   if (extraGrid.children.length) systemsEl.appendChild(extraSystems);
   if (systemRows.size) panelRoot.insertBefore(systemsEl, stepMetaEl);
+  const revealInteriorBtn = document.createElement('button');
+  revealInteriorBtn.type = 'button';
+  revealInteriorBtn.className = 'rh-btn rh-btn--primary rh-stage-focus';
+  revealInteriorBtn.dataset.rhAction = 'stages.revealInterior';
+  revealInteriorBtn.hidden = true;
+  if (manifest && stageOrder.includes('interior')) panelRoot.insertBefore(
+    revealInteriorBtn, systemsEl.parentNode === panelRoot ? systemsEl : stepMetaEl);
   // Every code in the selected stage remains reachable even when the 3D
   // callout is occluded. Groups are cheap; individual buttons are made only
   // when a group is opened, so a 1,000-part frame stays responsive.
@@ -6910,6 +6919,10 @@ RH.register('stages', function (ctx) {
     const { steps } = activeView();
     const step = steps[stepIdx];
     renderInventory();
+    const interiorVisible = systemRows.get('interior')?.getAttribute('aria-pressed') === 'true';
+    const interiorFocused = stageView === 'context' && interiorVisible;
+    revealInteriorBtn.hidden = !(manifest && stageActive && mode === 'stage' && step?.id === 'interior');
+    revealInteriorBtn.textContent = interiorFocused ? 'Вернуть общий вид' : 'Показать внутренние планки';
     showAllBtn.setAttribute('aria-pressed', String(!stageActive));
     nameEl.textContent = stageActive && step ? step.name : (manifest ? 'Все этапы' : 'Весь дом');
     countEl.textContent = stageActive && steps.length ? (stepIdx + 1) + ' из ' + steps.length : '';
@@ -7081,6 +7094,22 @@ RH.register('stages', function (ctx) {
     if (stageView === 'context') return;
     stageView = 'context'; syncModeButtons();
     if (panelOpen && mode === 'stage' && stageActive) applyAndMaybeAnimate();
+  });
+  revealInteriorBtn.addEventListener('click', () => {
+    const interiorButton = systemRows.get('interior');
+    const interiorVisible = interiorButton?.getAttribute('aria-pressed') === 'true';
+    if (stageView === 'context' && interiorVisible) {
+      stageView = 'cumulative';
+    } else {
+      if (interiorButton && !interiorVisible) {
+        interiorButton.setAttribute('aria-pressed', 'true');
+        interiorButton.setAttribute('aria-label', 'Внутренние элементы: показано');
+        applySystems();
+      }
+      stageView = 'context';
+    }
+    syncModeButtons();
+    applyAndMaybeAnimate();
   });
   showAllBtn.addEventListener('click', showAll);
   prevBtn.addEventListener('click', () => {

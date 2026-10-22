@@ -3151,14 +3151,23 @@ RH.register('search', function (ctx) {
       if (!state.activeCodes.has(m.code)) return;
       m.parts.forEach(function (p) {
         var name = m.bySku ? m.code : ((p.data && p.data.name) || m.code);
-        var key = m.bySku ? 'sku:' + m.code : name;
+        // The same code/name can occur in different construction stages.
+        // Keep them selectable separately so a builder can find the current
+        // stage's part without highlighting every earlier copy of that code.
+        var stageId = rootStages && rootStages.get(String(p.id).split('/')[0].toLowerCase());
+        var key = JSON.stringify([stageId || null, m.bySku ? 'sku' : 'name', name]);
         var g = groups.get(key);
-        if (!g) { g = { name: name, all: [], visible: [] }; groups.set(key, g); }
+        if (!g) { g = { key: key, name: name, stageId: stageId, all: [], visible: [] }; groups.set(key, g); }
         g.all.push(p);
         if (!hiddenIds.has(p.id)) g.visible.push(p);
       });
     });
-    return Array.from(groups.values());
+    var ordered = Array.from(groups.values());
+    var currentStage = new URLSearchParams(location.search).get('stage');
+    if (currentStage) ordered.sort(function (a, b) {
+      return Number(b.stageId === currentStage) - Number(a.stageId === currentStage);
+    });
+    return ordered;
   }
 
   function applyVisual(state) {
@@ -3168,7 +3177,7 @@ RH.register('search', function (ctx) {
       // Reuse groupByName's grouping (not a fresh name lookup) so a clicked
       // sku group -- labelled by sku, not part.data.name -- narrows to the
       // same parts the list row shows, instead of matching nothing.
-      var filterGroup = groupByName(state).filter(function (g) { return g.name === state.groupFilter; })[0];
+      var filterGroup = groupByName(state).filter(function (g) { return g.key === state.groupFilter; })[0];
       highlightParts = filterGroup ? filterGroup.all : [];
     }
     var hiSet = new Set(highlightParts.map(function (p) { return p.id; }));
@@ -3220,13 +3229,13 @@ RH.register('search', function (ctx) {
       var btn = el('button', 'rh-list__row');
       btn.type = 'button';
       btn.dataset.rhAction = 'search.selectGroup';
-      if (state.groupFilter === g.name) btn.setAttribute('aria-pressed', 'true');
+      if (state.groupFilter === g.key) btn.setAttribute('aria-pressed', 'true');
       btn.appendChild(document.createTextNode(g.name + ' '));
       var count = el('span', 'rh-count');
       count.textContent = String(g.visible.length);
       btn.appendChild(count);
       btn.addEventListener('click', function () {
-        state.groupFilter = state.groupFilter === g.name ? null : g.name;
+        state.groupFilter = state.groupFilter === g.key ? null : g.key;
         renderResults(state); // T35 п.3: сначала шторка получает содержимое (упор), потом подлёт
         applyVisual(state);
       });

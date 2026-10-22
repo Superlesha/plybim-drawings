@@ -369,7 +369,7 @@
   .rh-stage-inventory__group li{padding:0}
   .rh-stage-inventory__group button{width:100%;min-height:var(--hit-desk);padding:4px var(--s-2);border:0;border-radius:var(--r-1);background:transparent;color:var(--ink);font:12px/1.35 var(--font-ui);text-align:left;cursor:pointer}
   .rh-stage-inventory__group button:hover,.rh-stage-inventory__group button:focus-visible{background:var(--stamp-tint);color:var(--stamp)}
-  .rh-stage-inventory [data-rh-action="stages.inventoryRestore"]{width:100%;margin:0 0 var(--s-2)}
+  .rh-stage-inventory [data-rh-action="stages.inventoryRestore"],.rh-stage-inventory [data-rh-action="stages.inventoryIsolate"]{width:100%;margin:0 0 var(--s-2)}
   .rh-strata{display:flex;gap:1px;height:6px;margin:var(--s-2) 0;background:var(--ply-glue);border-radius:1px;overflow:hidden}
   .rh-strata__layer{flex:1;background:var(--hairline)}
   .rh-strata__layer[data-state="done"]:nth-child(odd){background:var(--ply-a)}
@@ -6757,10 +6757,16 @@ RH.register('stages', function (ctx) {
   inventoryRestore.dataset.rhAction = 'stages.inventoryRestore';
   inventoryRestore.textContent = 'Вернуть этап';
   inventoryRestore.hidden = true;
+  const inventoryIsolate = document.createElement('button');
+  inventoryIsolate.type = 'button';
+  inventoryIsolate.className = 'rh-btn';
+  inventoryIsolate.dataset.rhAction = 'stages.inventoryIsolate';
+  inventoryIsolate.textContent = 'Показать отдельно';
+  inventoryIsolate.hidden = true;
   const inventoryGroups = document.createElement('div');
   inventoryGroups.className = 'rh-stage-inventory__groups';
   inventory.append(inventorySummary, inventorySearch, inventoryStatus,
-    inventoryRestore, inventoryGroups);
+    inventoryIsolate, inventoryRestore, inventoryGroups);
   if (manifest) panelRoot.appendChild(inventory);
   panelRoot.appendChild(stageList);
 
@@ -6796,14 +6802,19 @@ RH.register('stages', function (ctx) {
   let selectedNodeId = null;
   let inventoryIsolation = false;
   let inventoryHardwareOverride = false;
+  let selectedInventoryPart = null;
 
   function restoreInventory() {
-    if (!inventoryIsolation && !inventoryHardwareOverride) return;
+    if (!inventoryIsolation && !inventoryHardwareOverride && !selectedInventoryPart) return;
     if (inventoryIsolation && ctx.visibility) ctx.visibility.restoreIsolation();
     if (inventoryHardwareOverride && ctx.filters) ctx.filters.setHardwareVisible(false, false);
     inventoryIsolation = false;
     inventoryHardwareOverride = false;
+    selectedInventoryPart = null;
+    inventoryIsolate.hidden = true;
+    inventoryIsolate.textContent = 'Показать отдельно';
     inventoryRestore.hidden = true;
+    ctx.emit('select', { part: null });
     inventoryStatus.textContent = 'Этап восстановлен. Выберите другую деталь.';
     syncInventorySummary();
   }
@@ -6842,7 +6853,7 @@ RH.register('stages', function (ctx) {
     inventoryGroups.replaceChildren();
     inventoryStatus.textContent = groups.size
       ? Array.from(groups.values()).reduce((n, parts) => n + parts.length, 0) +
-        ' деталей · выберите код, затем деталь. Просмотр отдельно можно отменить.'
+        ' деталей · выберите код, затем деталь. Место установки останется видно.'
       : 'По этому запросу деталей нет.';
     for (const [code, parts] of Array.from(groups).sort((a, b) => a[0].localeCompare(b[0], 'ru', { numeric: true }))) {
       const group = document.createElement('details');
@@ -6861,7 +6872,7 @@ RH.register('stages', function (ctx) {
           button.dataset.rhAction = 'stages.inventoryPart';
           button.textContent = (index + 1) + '. ' + String(part.data && part.data.name || 'Деталь') +
             (RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data) ? ' · код для учёта' : '');
-          button.title = 'Показать отдельно и приблизить ' + code;
+          button.title = 'Найти в доме и приблизить ' + code;
           button.addEventListener('click', () => {
             restoreInventory();
             if (ctx.getPartState && ctx.getPartState(part.id) === 'hidden' &&
@@ -6880,14 +6891,12 @@ RH.register('stages', function (ctx) {
             }
             ctx.emit('select', { part, pointerType: 'inventory' });
             if (ctx.selection) ctx.selection.set([part.id]);
-            if (ctx.visibility) {
-              ctx.visibility.isolateSelected();
-              inventoryIsolation = true;
-              inventoryRestore.hidden = false;
-            }
+            selectedInventoryPart = part;
+            inventoryIsolate.hidden = false;
+            inventoryRestore.hidden = false;
             syncInventorySummary();
             if (ctx.views) ctx.views.zoomSelected();
-            inventoryStatus.textContent = code + ': показана отдельно. Нажмите «Вернуть этап» для общего вида.';
+            inventoryStatus.textContent = code + ': выделена в доме. Если закрыта другими деталями, нажмите «Показать отдельно».';
           });
           item.appendChild(button);
           list.appendChild(item);
@@ -6900,6 +6909,21 @@ RH.register('stages', function (ctx) {
 
   inventory.addEventListener('toggle', renderInventory);
   inventorySearch.addEventListener('input', renderInventory);
+  inventoryIsolate.addEventListener('click', () => {
+    if (!selectedInventoryPart || !ctx.visibility) return;
+    if (inventoryIsolation) {
+      ctx.visibility.restoreIsolation();
+      inventoryIsolation = false;
+      inventoryIsolate.textContent = 'Показать отдельно';
+      inventoryStatus.textContent = inventoryCode(selectedInventoryPart) + ': выделена в доме.';
+    } else {
+      ctx.visibility.isolateSelected();
+      inventoryIsolation = true;
+      inventoryIsolate.textContent = 'Показать в доме';
+      inventoryStatus.textContent = inventoryCode(selectedInventoryPart) + ': показана отдельно; нажмите «Показать в доме» для опорного контекста.';
+    }
+    syncInventorySummary();
+  });
   inventoryRestore.addEventListener('click', () => {
     restoreInventory();
     if (ctx.views) ctx.views.fitVisible();

@@ -331,6 +331,8 @@
   .rh-stage-review{margin:var(--s-2) 0 0;padding-left:var(--s-2);border-left:2px solid var(--stamp);color:var(--ink-2);font-size:12px;line-height:1.35}
   .rh-stage-focus{display:flex;width:100%;margin-top:var(--s-3);white-space:normal;text-align:center;line-height:1.25}
   .rh-stage-focus[hidden]{display:none}
+  .rh-stage-focus-note{margin:var(--s-2) 0 0;color:var(--ink-2);font-size:12px;line-height:1.35}
+  .rh-stage-focus-note[hidden]{display:none}
   .rh-stage-mode{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-2);margin:var(--s-2) 0 var(--s-3)}
   .rh-stage-mode > .rh-btn{min-width:0;padding-inline:var(--s-2);font-size:13px}
   .rh-stage-mode > [data-rh-action="stages.modeGhost"]{grid-column:1/-1}
@@ -6363,6 +6365,8 @@ RH.register('stages', function (ctx) {
   }
   const rootStages = manifest && Object.fromEntries(
     manifest.assignments.map((row) => [String(row.id).toLowerCase(), String(row.stageId)]));
+  const rootCodes = manifest && Object.fromEntries(
+    manifest.assignments.map((row) => [String(row.id).toLowerCase(), String(row.code || '').toUpperCase()]));
   if (manifest && Object.keys(rootStages).length !== manifest.assignments.length) {
     throw new Error('Construction stage manifest contains duplicate root GUIDs');
   }
@@ -6704,7 +6708,12 @@ RH.register('stages', function (ctx) {
         history.replaceState(null, '', url);
       }
       applySystems();
-      render();
+      if (id === 'interior' && !visible && interiorFocusActive) {
+        interiorFocusActive = false;
+        stageView = interiorFocusPreviousView;
+        syncModeButtons();
+        applyAndMaybeAnimate();
+      } else render();
     });
     (primarySystems.has(id) ? systemsGrid : extraGrid).appendChild(button);
     systemRows.set(id, button);
@@ -6718,6 +6727,12 @@ RH.register('stages', function (ctx) {
   revealInteriorBtn.hidden = true;
   if (manifest && stageOrder.includes('interior')) panelRoot.insertBefore(
     revealInteriorBtn, systemsEl.parentNode === panelRoot ? systemsEl : stepMetaEl);
+  const interiorFocusNote = document.createElement('p');
+  interiorFocusNote.className = 'rh-stage-focus-note';
+  interiorFocusNote.textContent = 'Осмотр: кровля и наружные слои скрыты; стены и основание остаются видны.';
+  interiorFocusNote.hidden = true;
+  if (manifest && stageOrder.includes('interior')) panelRoot.insertBefore(
+    interiorFocusNote, systemsEl.parentNode === panelRoot ? systemsEl : stepMetaEl);
   // Every code in the selected stage remains reachable even when the 3D
   // callout is occluded. Groups are cheap; individual buttons are made only
   // when a group is opened, so a 1,000-part frame stays responsive.
@@ -6889,6 +6904,16 @@ RH.register('stages', function (ctx) {
   // ?stage_view=only links are normalized to the cumulative construction view.
   let stageView = manifest ? (requestedView === 'context' ? 'context' : 'cumulative')
     : ['only', 'context', 'cumulative'].includes(requestedView) ? requestedView : 'cumulative';
+  let interiorFocusActive = false;
+  let interiorFocusPreviousView = 'cumulative';
+  const interiorFocusHiddenIds = manifest ? ctx.parts.filter((part) => {
+    const rootId = String(part.id).split('/')[0].toLowerCase();
+    const stageId = rootStages[rootId];
+    if (stageId !== 'roof_structure') return [
+      'exterior_battens', 'exterior_sheathing', 'roof_covering', 'windows', 'facade'
+    ].includes(stageId);
+    return !['ABT', 'BBT'].includes(rootCodes[rootId]);
+  }).map((part) => part.id) : [];
 
   function syncModeButtons() {
     cumulativeBtn.setAttribute('aria-pressed', String(stageView === 'cumulative'));
@@ -6920,9 +6945,10 @@ RH.register('stages', function (ctx) {
     const step = steps[stepIdx];
     renderInventory();
     const interiorVisible = systemRows.get('interior')?.getAttribute('aria-pressed') === 'true';
-    const interiorFocused = stageView === 'context' && interiorVisible;
+    const interiorFocused = interiorFocusActive && interiorVisible;
     revealInteriorBtn.hidden = !(manifest && stageActive && mode === 'stage' && step?.id === 'interior');
     revealInteriorBtn.textContent = interiorFocused ? 'Вернуть общий вид' : 'Показать внутренние планки';
+    interiorFocusNote.hidden = !interiorFocused;
     showAllBtn.setAttribute('aria-pressed', String(!stageActive));
     nameEl.textContent = stageActive && step ? step.name : (manifest ? 'Все этапы' : 'Весь дом');
     countEl.textContent = stageActive && steps.length ? (stepIdx + 1) + ' из ' + steps.length : '';
@@ -6981,6 +7007,10 @@ RH.register('stages', function (ctx) {
       ? result.normal.filter((id) => prevHiddenSet.has(id))
       : [];
     commit(result);
+    ctx.clearState('interior-focus');
+    if (interiorFocusActive && mode === 'stage' && steps[stepIdx]?.id === 'interior') {
+      ctx.setState('interior-focus', interiorFocusHiddenIds, 'hidden');
+    } else interiorFocusActive = false;
     // Labels belong to the selected step even in cumulative/ghost view.
     ctx.labelStageIds = new Set((steps[stepIdx] && steps[stepIdx].parts || []).map((part) => part.id));
     if (ctx.emit) ctx.emit('stage-labels', ctx.labelStageIds);
@@ -7022,6 +7052,8 @@ RH.register('stages', function (ctx) {
     panelOpen = false;
     toggleBtn.setAttribute('aria-pressed', 'false');
     stopAnimation();
+    interiorFocusActive = false;
+    ctx.clearState('interior-focus');
     if (panelRoot.parentNode) panelRoot.parentNode.removeChild(panelRoot);
   }
   function showAll() {
@@ -7030,6 +7062,8 @@ RH.register('stages', function (ctx) {
     inventorySearch.value = '';
     inventory.open = false;
     stopAnimation();
+    interiorFocusActive = false;
+    ctx.clearState('interior-focus');
     mode = 'stage'; currentNodeId = null; stageActive = false;
     backBtn.hidden = true; nodeTitleEl.hidden = true;
     ctx.clearState('stages');
@@ -7081,32 +7115,38 @@ RH.register('stages', function (ctx) {
     else { ensureOpen(); render(); }
   });
   cumulativeBtn.addEventListener('click', () => {
-    if (stageView === 'cumulative') return;
+    if (interiorFocusActive) { interiorFocusActive = false; ctx.clearState('interior-focus'); }
+    if (stageView === 'cumulative') { render(); return; }
     stageView = 'cumulative'; syncModeButtons();
     if (panelOpen && mode === 'stage' && stageActive) applyAndMaybeAnimate();
   });
   onlyBtn.addEventListener('click', () => {
-    if (stageView === 'only') return;
+    if (interiorFocusActive) { interiorFocusActive = false; ctx.clearState('interior-focus'); }
+    if (stageView === 'only') { render(); return; }
     stageView = 'only'; syncModeButtons();
     if (panelOpen && mode === 'stage' && stageActive) applyAndMaybeAnimate();
   });
   ghostBtn.addEventListener('click', () => {
-    if (stageView === 'context') return;
+    if (interiorFocusActive) { interiorFocusActive = false; ctx.clearState('interior-focus'); }
+    if (stageView === 'context') { render(); return; }
     stageView = 'context'; syncModeButtons();
     if (panelOpen && mode === 'stage' && stageActive) applyAndMaybeAnimate();
   });
   revealInteriorBtn.addEventListener('click', () => {
     const interiorButton = systemRows.get('interior');
     const interiorVisible = interiorButton?.getAttribute('aria-pressed') === 'true';
-    if (stageView === 'context' && interiorVisible) {
-      stageView = 'cumulative';
+    if (interiorFocusActive && interiorVisible) {
+      interiorFocusActive = false;
+      stageView = interiorFocusPreviousView;
     } else {
+      interiorFocusPreviousView = stageView;
       if (interiorButton && !interiorVisible) {
         interiorButton.setAttribute('aria-pressed', 'true');
         interiorButton.setAttribute('aria-label', 'Внутренние элементы: показано');
         applySystems();
       }
       stageView = 'context';
+      interiorFocusActive = true;
     }
     syncModeButtons();
     applyAndMaybeAnimate();

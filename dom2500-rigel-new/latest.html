@@ -434,6 +434,8 @@
   .rh-measure{transform-origin:0 50%}
   .rh-measure__label{transform:translate(-50%,-50%)}
   .rh-labels-layer .rh-callout{pointer-events:auto;cursor:pointer;touch-action:none}
+  .rh-label-stack-hint{position:absolute;z-index:10000;max-width:230px;padding:5px 8px;background:#202127;color:#fff;border-radius:4px;font:500 12px/1.35 var(--font-code);pointer-events:none;box-shadow:0 2px 10px #0005}
+  .rh-label-stack-hint[hidden]{display:none}
   /* T13b: размер сносок -- множитель --rh-label-scale (ползунок удержания «Подписи»); выноска держит низ на якоре */
   .rh-labels-layer .rh-callout{font-size:calc(12px * var(--rh-label-scale,1));margin-top:calc(-18px - 7.8px * var(--rh-label-scale,1))}
   .rh-labels-layer .rh-callout__n{font-size:calc(11px * var(--rh-label-scale,1))}
@@ -2155,6 +2157,26 @@ RH.pickVisibleLabelAnchor = function (e, candidates, raycaster, camera, section,
   }
   return null;
 };
+// Every callout stays in the builder view. When their rectangles overlap,
+// repeated taps at one point cycle through the actual parts underneath.
+RH.visibleLabelStackAt = function (shown, x, y) {
+  return shown.filter((e) => {
+    if (!e.co.visible) return false;
+    const r = e.el.getBoundingClientRect();
+    return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }).sort((a, b) => (a._z2 || 0) - (b._z2 || 0) || a.part.id.localeCompare(b.part.id));
+};
+RH.pickFromLabelStack = function (stack, clickedId, previous, x, y) {
+  if (!stack.length) return null;
+  const signature = stack.map((e) => e.part.id).join('|');
+  const repeat = previous && previous.signature === signature &&
+    Math.hypot(previous.x - x, previous.y - y) <= 8;
+  let index = repeat ? (previous.index + 1) % stack.length :
+    stack.findIndex((e) => e.part.id === clickedId);
+  if (index < 0) index = 0;
+  return { entry: stack[index], index, count: stack.length,
+    state: { signature, index, x, y } };
+};
 RH.register('labels', function (ctx) {
   const THREE = ctx.THREE;
   const { CSS2DRenderer, CSS2DObject } = ctx.addons;
@@ -2233,6 +2255,24 @@ RH.register('labels', function (ctx) {
   let shown = [];
   let stageLabelIds = ctx.labelStageIds || null;
   let selectedPartId = null;
+  let lastStackPick = null;
+  let stackHintTimer = null;
+  const stackHint = document.createElement('div');
+  stackHint.className = 'rh-label-stack-hint';
+  stackHint.setAttribute('role', 'status');
+  stackHint.hidden = true;
+  css.domElement.appendChild(stackHint);
+  function showStackHint(pick, e) {
+    if (stackHintTimer) clearTimeout(stackHintTimer);
+    if (pick.count < 2) { stackHint.hidden = true; return; }
+    const bounds = ctx.container.getBoundingClientRect();
+    stackHint.textContent = pick.index + 1 + '/' + pick.count + ' · ' + pick.entry.code +
+      ' · нажмите ещё раз здесь для следующей детали';
+    stackHint.style.left = Math.max(12, Math.min(e.clientX - bounds.left + 12, bounds.width - 230)) + 'px';
+    stackHint.style.top = Math.max(12, Math.min(e.clientY - bounds.top + 12, bounds.height - 44)) + 'px';
+    stackHint.hidden = false;
+    stackHintTimer = setTimeout(() => { stackHint.hidden = true; stackHintTimer = null; }, 3500);
+  }
   const box = new THREE.Box3();
   const bc = new THREE.Vector3();
   const bs = new THREE.Vector3();
@@ -2285,7 +2325,13 @@ RH.register('labels', function (ctx) {
       forwardToCanvas('pointercancel', e);
       if (e.type !== 'pointerup' || !start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_PX) return;
       e.stopPropagation();
-      ctx.emit('select', { part, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, pointerType: e.pointerType });
+      let picked = part;
+      if (allMode) {
+        const stack = RH.visibleLabelStackAt(shown, e.clientX, e.clientY);
+        const choice = RH.pickFromLabelStack(stack, part.id, lastStackPick, e.clientX, e.clientY);
+        if (choice) { picked = choice.entry.part; lastStackPick = choice.state; showStackHint(choice, e); }
+      }
+      ctx.emit('select', { part: picked, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, pointerType: e.pointerType });
     };
     el.addEventListener('pointerup', endDrag);
     el.addEventListener('pointercancel', endDrag);
@@ -2369,7 +2415,8 @@ RH.register('labels', function (ctx) {
     const e = byId.get(id);
     if (e) {
       e.state = state;
-      e.el.dataset.state = state === 'highlight' ? 'found' : '';
+      e.el.dataset.state = state === 'selected' || state === 'found-selected' ? 'selected' :
+        state === 'highlight' ? 'found' : '';
       if (state === 'hidden' || state === 'dim') {
         e.co.visible = false;
         e.el.style.display = 'none';
@@ -2378,7 +2425,7 @@ RH.register('labels', function (ctx) {
     }
   });
 
-  ctx.on('camera', () => scheduleRecompute(0));
+  ctx.on('camera', () => { lastStackPick = null; stackHint.hidden = true; scheduleRecompute(0); });
   // During a section-handle drag the expensive ID pass is deferred. Hide the
   // previous labels immediately so a now-fully-clipped part cannot keep its tag.
   ctx.on('section', () => {
@@ -2388,6 +2435,8 @@ RH.register('labels', function (ctx) {
     scheduleRecompute(0);
   });
   ctx.on('stage-labels', (ids) => {
+    lastStackPick = null;
+    stackHint.hidden = true;
     stageLabelIds = ids;
     if (enabled && allMode) ctx.emit('labels-coverage', { active: true, pending: true });
     for (const e of entries) if (ids && !ids.has(e.part.id) &&
@@ -2436,6 +2485,8 @@ RH.register('labels', function (ctx) {
   }
   function setEnabled(next) {
     enabled = next;
+    lastStackPick = null;
+    stackHint.hidden = true;
     // One builder control: every visible coded part on, then every tag off.
     // The legacy non-builder viewer keeps its ordinary decluttered mode.
     allMode = !!(enabled && ctx.asset && ctx.asset.stage_manifest);
@@ -2891,7 +2942,7 @@ RH.register('labels', function (ctx) {
     for (const e of nowShown) e._z2 = e.co.position.distanceToSquared(camPos);
     nowShown.sort((a, b) => a._z2 - b._z2);
     for (let i = 0; i < nowShown.length; i++) {
-      const z = String(nowShown.length - i);
+      const z = String(nowShown[i].part.id === selectedPartId ? nowShown.length + 1 : nowShown.length - i);
       if (nowShown[i].zIndex !== z) { nowShown[i].zIndex = z; nowShown[i].el.style.zIndex = z; }
     }
     shown = nowShown;

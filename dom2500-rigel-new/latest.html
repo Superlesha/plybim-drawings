@@ -3004,6 +3004,9 @@ RH.register('search', function (ctx) {
   var stageTitles = stageManifest ? new Map(stageManifest.stages.map(function (row) {
     return [String(row.id), row.title];
   })) : null;
+  var stageOrder = stageManifest ? new Map(stageManifest.stages.map(function (row) {
+    return [String(row.id), Number(row.order)];
+  })) : null;
 
   function el(tag, cls) {
     var e = document.createElement(tag);
@@ -3232,9 +3235,19 @@ RH.register('search', function (ctx) {
       if (state.groupFilter === g.key) btn.setAttribute('aria-pressed', 'true');
       btn.appendChild(document.createTextNode(g.name + ' '));
       var count = el('span', 'rh-count');
-      count.textContent = String(g.visible.length);
+      var currentStage = new URLSearchParams(location.search).get('stage');
+      var openFutureStage = !g.visible.length && stageOrder && stageOrder.has(currentStage) &&
+        stageOrder.has(g.stageId) && stageOrder.get(g.stageId) > stageOrder.get(currentStage);
+      count.textContent = openFutureStage ? '0 · открыть этап' : String(g.visible.length);
       btn.appendChild(count);
       btn.addEventListener('click', function () {
+        if (openFutureStage) {
+          state.groupFilter = g.key;
+          ctx.emit('stages.navigate', g.stageId);
+          renderResults(state);
+          applyVisual(state);
+          return;
+        }
         state.groupFilter = state.groupFilter === g.key ? null : g.key;
         renderResults(state); // T35 п.3: сначала шторка получает содержимое (упор), потом подлёт
         applyVisual(state);

@@ -6367,8 +6367,6 @@ RH.register('stages', function (ctx) {
   }
   const rootStages = manifest && Object.fromEntries(
     manifest.assignments.map((row) => [String(row.id).toLowerCase(), String(row.stageId)]));
-  const rootCodes = manifest && Object.fromEntries(
-    manifest.assignments.map((row) => [String(row.id).toLowerCase(), String(row.code || '').toUpperCase()]));
   if (manifest && Object.keys(rootStages).length !== manifest.assignments.length) {
     throw new Error('Construction stage manifest contains duplicate root GUIDs');
   }
@@ -6734,7 +6732,7 @@ RH.register('stages', function (ctx) {
     revealInteriorBtn, systemsEl.parentNode === panelRoot ? systemsEl : stepMetaEl);
   const interiorFocusNote = document.createElement('p');
   interiorFocusNote.className = 'rh-stage-focus-note';
-  interiorFocusNote.textContent = 'Осмотр: кровля и наружные слои временно скрыты; стены и основание остаются видны. Верните общий вид, чтобы изменить скрытые системы.';
+  interiorFocusNote.textContent = 'Осмотр: кровельный каркас и наружные слои временно скрыты; стены и основание остаются видны. Верните общий вид, чтобы изменить скрытые системы.';
   interiorFocusNote.hidden = true;
   if (manifest && stageOrder.includes('interior')) panelRoot.insertBefore(
     interiorFocusNote, systemsEl.parentNode === panelRoot ? systemsEl : stepMetaEl);
@@ -6938,10 +6936,10 @@ RH.register('stages', function (ctx) {
   const interiorFocusHiddenIds = manifest ? ctx.parts.filter((part) => {
     const rootId = String(part.id).split('/')[0].toLowerCase();
     const stageId = rootStages[rootId];
-    if (stageId !== 'roof_structure') return [
-      'exterior_battens', 'exterior_sheathing', 'roof_covering', 'windows', 'facade'
+    return [
+      'roof_structure', 'exterior_battens', 'exterior_sheathing',
+      'roof_covering', 'windows', 'facade'
     ].includes(stageId);
-    return !['ABT', 'BBT'].includes(rootCodes[rootId]);
   }).map((part) => part.id) : [];
 
   function syncModeButtons() {

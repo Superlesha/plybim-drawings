@@ -2238,7 +2238,11 @@ RH.register('labels', function (ctx) {
     const el = document.createElement('div');
     el.className = 'rh-callout';
     if (part.data.role === 'покупное' && part.data.sku) el.dataset.sku = 'true';
-    if (!autoEligible) el.dataset.reference = 'true';
+    if (!autoEligible) {
+      el.dataset.reference = 'true';
+      el.title = code + ' — код для учёта, не обозначение фрезерной маркировки';
+      el.setAttribute('aria-label', el.title);
+    }
     const leader = document.createElement('span');
     leader.className = 'rh-callout__leader';
     const codeEl = document.createElement('span');
@@ -2434,7 +2438,7 @@ RH.register('labels', function (ctx) {
     allBtn.type = 'button';
     allBtn.className = 'rh-tool';
     allBtn.textContent = 'Все подписи';
-    allBtn.title = 'Показать каждую видимую деталь с кодом, включая коды без фрезерной маркировки (пометка «учёт»). Для чтения приблизьте нужный узел.';
+    allBtn.title = 'Показать каждую видимую деталь с кодом, включая коды без фрезерной маркировки (пометка «код для учёта»). Для чтения приблизьте нужный узел.';
     allBtn.dataset.rhAction = 'labels.all';
     allBtn.setAttribute('aria-pressed', 'false');
     allBtn.addEventListener('click', () => {
@@ -6816,7 +6820,7 @@ RH.register('stages', function (ctx) {
       group.className = 'rh-stage-inventory__group';
       const summary = document.createElement('summary');
       const reference = parts.every((part) => RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data));
-      summary.textContent = code + ' × ' + parts.length + (reference ? ' · учёт' : '');
+      summary.textContent = code + ' × ' + parts.length + (reference ? ' · код для учёта' : '');
       group.appendChild(summary);
       group.addEventListener('toggle', () => {
         if (!group.open || group.children.length > 1) return;
@@ -6827,7 +6831,7 @@ RH.register('stages', function (ctx) {
           button.type = 'button';
           button.dataset.rhAction = 'stages.inventoryPart';
           button.textContent = (index + 1) + '. ' + String(part.data && part.data.name || 'Деталь') +
-            (RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data) ? ' · учёт' : '');
+            (RH.labelEligiblePolicy && !RH.labelEligiblePolicy(part.data) ? ' · код для учёта' : '');
           button.title = 'Показать отдельно и приблизить ' + code;
           button.addEventListener('click', () => {
             restoreInventory();

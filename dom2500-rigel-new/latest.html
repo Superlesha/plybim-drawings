@@ -898,7 +898,50 @@
 [data-rh-module="filters"] .rh-section[data-rh-facet="слой"] {
   display:none !important;
 }
-</style></head>
+</style><style>/* Touch-only sizing. Camera directions and cube drawing stay in viewcube.js. */
+@media (pointer:coarse) {
+  :root { --cube-size:112px; }
+  #rh-top-right { top:max(8px,env(safe-area-inset-top)); right:max(60px,calc(env(safe-area-inset-right) + 60px)); }
+  .rh-viewcube-wrap { width:var(--cube-size); margin:0; }
+  .rh-viewcube__bar { display:flex; align-items:center; gap:4px; margin-bottom:4px; }
+  .rh-viewcube__bar > .rh-tool { position:static; display:flex; align-items:center; justify-content:center; box-sizing:border-box; flex:none; min-width:44px; min-height:44px; height:44px; padding:0; background:var(--surface); border:1px solid var(--border); opacity:1; }
+  .rh-viewcube__bar > .rh-viewcube__home { width:44px; }
+  .rh-viewcube__bar > .rh-viewcube__home::before { position:static; inset:auto; transform:none; width:24px; height:24px; -webkit-mask-size:24px; mask-size:24px; }
+  .rh-viewcube__bar > .rh-viewcube__more { width:64px; font:600 16px var(--font-ui); }
+  .rh-viewcube__bar > .rh-viewcube__more::before { display:none; }
+  .rh-viewcube__bar > .rh-tool:focus-visible { outline:2px solid var(--stamp); outline-offset:2px; }
+  .rh-viewcube__menu { top:48px; right:0; width:min(260px,calc(100vw - 76px)); min-width:0; box-sizing:border-box; padding:8px; gap:4px; max-height:calc(100dvh - 124px); overflow:auto; overscroll-behavior:contain; }
+  .rh-viewcube__directions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; padding-bottom:8px; margin-bottom:4px; border-bottom:1px solid var(--border); }
+  .rh-viewcube__directions > button { min-width:0; min-height:44px; padding:6px; border:1px solid var(--border); border-radius:var(--r-1); background:var(--surface); color:var(--ink); font:600 16px var(--font-ui); text-align:center; cursor:pointer; }
+  .rh-viewcube__directions > button:focus-visible { outline:2px solid var(--stamp); outline-offset:-2px; }
+  .rh-viewcube__menu > button { flex:none; min-height:44px; padding:8px; font-size:16px; white-space:normal; line-height:1.2; }
+}
+</style><style>/* Retain existing panel padding/height/placement; only the body scrolls. */
+@media (pointer:coarse) {
+  #module-panel { min-height:0; overflow:hidden; }
+  #module-panel > .rh-panel.rh-tablet-scroll:not([hidden]) { display:flex; flex-direction:column; flex:0 1 auto; overflow:hidden; }
+  #module-panel > .rh-tablet-scroll > .rh-panel__head { position:relative; top:auto; flex:none; background:var(--surface); }
+  .rh-tablet-scroll__body { min-height:0; flex:1 1 auto; overflow:auto; overscroll-behavior:contain; }
+  /* Preserve the original direct-child spacing inside the new scroll body. */
+  .rh-tablet-scroll__body > .rh-btn,
+  .rh-tablet-scroll__body > .rh-row { margin-top:var(--s-2); }
+  .rh-tablet-scroll__body > :is([data-rh-action="stages.exitNode"],[data-rh-action="stages.animate"]) { display:inline-flex; align-items:center; gap:var(--s-2); }
+  .rh-builder-panel > .rh-tablet-scroll__body > .rh-stage-review { margin:2px 0; font-size:11px; line-height:1.2; }
+}
+</style><script>
+window.rhTabletPanelScroll = function (panel) {
+  if (!window.matchMedia('(pointer:coarse)').matches || panel.classList.contains('rh-tablet-scroll')) return;
+  var head = panel.querySelector(':scope > .rh-panel__head');
+  if (!head) return;
+  var body = document.createElement('div');
+  body.className = 'rh-tablet-scroll__body';
+  Array.from(panel.childNodes).forEach(function (node) {
+    if (node !== head) body.appendChild(node);
+  });
+  panel.appendChild(body);
+  panel.classList.add('rh-tablet-scroll');
+};
+</script></head>
 <body>
 <div id="canvas-wrap"></div>
 <!-- T13b: оболочка на четыре стороны. Что куда -- таблица LAYOUT в core.js. -->
@@ -1666,6 +1709,31 @@ RH.register('viewcube', function (ctx) {
   var setHomeItem = menuItem('setHome', 'Сделать текущий вид домашним');
   var fitItem = menuItem('fit', 'Показать всё');
 
+  var tabletDirections = null;
+  if (window.matchMedia('(pointer:coarse)').matches) {
+    menuBtn.textContent = 'Виды';
+    menuBtn.title = 'Выбрать вид';
+    menuBtn.setAttribute('aria-label', 'Виды');
+    tabletDirections = document.createElement('div');
+    tabletDirections.className = 'rh-viewcube__directions';
+    tabletDirections.setAttribute('role', 'group');
+    tabletDirections.setAttribute('aria-label', 'Направления вида');
+    [['top', 'Сверху'], ['bottom', 'Снизу'],
+     ['front', 'Спереди'], ['back', 'Сзади'],
+     ['left', 'Слева'], ['right', 'Справа']].forEach(function (item) {
+      var button = menuItem('choose.' + item[0], item[1]);
+      button.setAttribute('aria-label', 'Вид ' + item[1].toLocaleLowerCase('ru'));
+      button.addEventListener('click', function () {
+        setMenu(false);
+        goTo(item[0]);
+        menuBtn.focus();
+      });
+      tabletDirections.appendChild(button);
+    });
+    menu.insertBefore(tabletDirections, menu.firstChild);
+  }
+
+
   wrap.append(bar, cube, menu);
   document.body.appendChild(wrap);
 
@@ -1721,7 +1789,7 @@ RH.register('viewcube', function (ctx) {
       var p = !!ctx.camera.isPerspectiveCamera;
       perspItem.setAttribute('aria-checked', String(p));
       orthoItem.setAttribute('aria-checked', String(!p));
-      perspItem.focus();
+      (tabletDirections ? tabletDirections.querySelector('button') : perspItem).focus();
     }
   }
   menuBtn.addEventListener('click', function () { setMenu(menu.hidden); });
@@ -2664,6 +2732,7 @@ RH.register('labels', function (ctx) {
       const start = dragStart.get(e.pointerId);
       dragStart.delete(e.pointerId);
       forwardToCanvas('pointercancel', e);
+      if (RH.touchGestureAllowsSelection && !RH.touchGestureAllowsSelection(e)) return;
       if (e.type !== 'pointerup' || !start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_PX) return;
       e.stopPropagation();
       let picked = part;
@@ -4216,6 +4285,7 @@ RH.register('filters', function (ctx) {
   body.appendChild(resetBtn);
 
   ctx.ui.toolbar.appendChild(toolBtn);
+  window.rhTabletPanelScroll(panel);
   ctx.ui.panel.appendChild(panel);
 
   // Раскладка панели и шторка на узком экране -- классы index.html (.rh-list, .rh-toggle, #module-panel).
@@ -4538,6 +4608,7 @@ RH.register('layers', function (ctx) {
   }
 
   ctx.ui.toolbar.appendChild(toolBtn);
+  window.rhTabletPanelScroll(panel);
   ctx.ui.panel.appendChild(panel);
 
   compute();
@@ -5015,7 +5086,8 @@ RH.register('ruler', function (ctx) {
     btn.setAttribute('aria-pressed', String(v));
     if (v) {
       container.setAttribute('data-rh-ruler', '');
-      ctx.ui.panel.appendChild(panel);
+      window.rhTabletPanelScroll(panel);
+  ctx.ui.panel.appendChild(panel);
     } else {
       container.removeAttribute('data-rh-ruler');
       cancelCurrent();
@@ -5959,7 +6031,8 @@ RH.register('section', function (ctx) {
       handles.visible = !(ctx.walk && ctx.walk.active); // T30d FAIL F: не показывать ручки поверх прогулки
       ctx.section.enable(true);
       setPlanesAll();
-      ctx.ui.panel.appendChild(panel);
+      window.rhTabletPanelScroll(panel);
+  ctx.ui.panel.appendChild(panel);
       // T35: шторка ещё едет, но freeRect уже знает её целевой упор -- подлёт
       // считается сразу, в этом же вызове (кадры не ждём).
       flyToFree(); // T33: подлёт, если хоть одна ручка вне свободной части
@@ -7575,8 +7648,10 @@ RH.register('stages', function (ctx) {
     const hiddenParts = parts.filter((part) => ctx.getPartState && ctx.getPartState(part.id) === 'hidden');
     const hidden = hiddenParts.length;
     const onlyHardware = hidden && hiddenParts.every((part) => part.data && part.data.role === 'крепёж');
-    builderDetailsTab.textContent = 'Детали · ' + frameCount;
-    inventorySummary.textContent = 'Каркас · ' + frameCount + ' шт · материалы · ' + materialCount + ' шт' +
+    const materialsOnly = frameCount === 0 && materialCount > 0;
+    builderDetailsTab.textContent = materialsOnly ? 'Материалы · ' + materialCount : 'Детали · ' + frameCount;
+    inventorySummary.textContent = (materialsOnly ? 'Материалы · ' + materialCount + ' шт'
+      : 'Каркас · ' + frameCount + ' шт · материалы · ' + materialCount + ' шт') +
       (hidden ? (onlyHardware ? ' · скрыт крепёж: ' : ' · скрыто ') + hidden : '');
   }
 
@@ -7604,8 +7679,9 @@ RH.register('stages', function (ctx) {
     const auxiliaryCount = rows.filter((row) => row.auxiliary).reduce((n, row) => n + row.parts.length, 0);
     auxiliarySummary.textContent = 'Материалы без маркировки · ' + auxiliaryCount + ' шт';
     auxiliary.appendChild(auxiliarySummary);
-    // A query must also find collapsed auxiliary materials.
-    auxiliary.open = !!query;
+    // Material-only stages open directly onto useful names, while mixed stages
+    // retain the collapsed secondary materials and lazy instance entries.
+    auxiliary.open = !!query || (auxiliaryCount > 0 && rows.every((row) => row.auxiliary));
     for (const row of rows) {
       const {code, name, parts} = row;
       const title = row.auxiliary ? name : code || 'Без кода · ' + name;
@@ -7887,6 +7963,7 @@ RH.register('stages', function (ctx) {
     if (panelOpen) return;
     panelOpen = true;
     toggleBtn.setAttribute('aria-pressed', 'true');
+    window.rhTabletPanelScroll(panelRoot);
     ctx.ui.panel.appendChild(panelRoot);
     syncBuilderSearch();
     prevHiddenSet = null; // ничего не было скрыто -- первое применение без анимации
@@ -7950,7 +8027,7 @@ RH.register('stages', function (ctx) {
     applyAndMaybeAnimate();
     // Stage rows can be far down the panel on both desktop and phone. Bring
     // the chosen stage name and the system switches back into view.
-    panelRoot.scrollTop = 0;
+    (panelRoot.querySelector(':scope > .rh-tablet-scroll__body') || panelRoot).scrollTop = 0;
     ctx.ui.panel.scrollTop = 0;
   }
   function enterNodeAssembly(nodeId) {
@@ -8735,6 +8812,7 @@ RH.register('settings', function (ctx) {
 
   ctx.ui.toolbar.appendChild(toolBtn);
   ctx.ui.toolbar.appendChild(quick);
+  window.rhTabletPanelScroll(panel);
   ctx.ui.panel.appendChild(panel);
 
   // Раскладка и цвета панели -- классы index.html (.rh-seg, .rh-row, .rh-color, .rh-range).
@@ -9531,6 +9609,7 @@ RH.register('info', function (ctx) {
   }
 
   ctx.ui.toolbar.appendChild(btn);
+  window.rhTabletPanelScroll(panel);
   ctx.ui.panel.appendChild(panel);
 });
 </script>
@@ -10888,13 +10967,33 @@ let lastTapAt = 0, lastTapX = 0, lastTapY = 0;
 function fireDblSelect(hit) {
   emit('dblselect', { part: hit && meshToPart.get(hit.object), point: hit ? hit.point.clone() : null });
 }
+// Touch intent is independent of OrbitControls' two-finger dolly/pan.
+const TOUCH_ORBIT_WAIT_MS = 120, TOUCH_ORBIT_SLOP_PX = 8;
+const touchStarts = new Map();
+let touchSessionMulti = false, lastNavigationPointerType = '';
+RH.touchGestureAllowsSelection = function (e) {
+  if (e.pointerType !== 'touch') return true;
+  const start = touchStarts.get(e.pointerId);
+  return !!start && !touchSessionMulti && !start.dragged && !start.cancelled;
+};
 renderer.domElement.addEventListener('pointerdown', (e) => {
   activePointers.add(e.pointerId); // T31b: любая кнопка/палец -- не только вращение
   controls.zoomSpeed = 1; // T24: щипок -- прежняя скорость (колесо ставит свою)
   downX = e.clientX; downY = e.clientY;
-  if (e.pointerType === 'touch') touchIds.add(e.pointerId);
-  const rotating = e.pointerType === 'touch' ? touchIds.size === 1 : e.button === 0;
+  lastNavigationPointerType = e.pointerType;
+  if (e.pointerType === 'touch') {
+    if (touchIds.size === 0) { touchStarts.clear(); touchSessionMulti = false; }
+    touchStarts.set(e.pointerId, { x: e.clientX, y: e.clientY, at: performance.now(), dragged: false, ended: false, cancelled: false });
+    touchIds.add(e.pointerId);
+    if (touchIds.size > 1) { touchSessionMulti = true; lastTapAt = 0; }
+  }
+  const rotating = e.pointerType === 'touch' ? touchIds.size === 1 && !touchSessionMulti : e.button === 0;
   if (!rotating || !controls.enabled) { rot = null; return; }
+  if (e.pointerType === 'touch') {
+    // Do not raycast or flash a pivot while a possible second finger arrives.
+    rot = { id: e.pointerId, x: e.clientX, y: e.clientY, pending: true };
+    return;
+  }
   const hit = pickHit(e.clientX, e.clientY);
   if (hit) pivotPoint.copy(hit.point);
   else if (!pivotSet) pivotPoint.copy(controls.target);
@@ -10903,13 +11002,35 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
   flashPivot();
 });
 renderer.domElement.addEventListener('pointermove', (e) => {
+  const start = e.pointerType === 'touch' && touchStarts.get(e.pointerId);
+  if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) {
+    start.dragged = true; lastTapAt = 0;
+  }
   if (!rot || e.pointerId !== rot.id || !controls.enabled) return;
+  if (e.pointerType === 'touch') {
+    if (!start || touchSessionMulti) { rot = null; return; }
+    if (rot.pending) {
+      if (performance.now() - start.at < TOUCH_ORBIT_WAIT_MS ||
+          Math.hypot(e.clientX - start.x, e.clientY - start.y) < TOUCH_ORBIT_SLOP_PX) return;
+      const hit = pickHit(start.x, start.y);
+      if (hit) pivotPoint.copy(hit.point);
+      else if (!pivotSet) pivotPoint.copy(controls.target);
+      pivotSet = true; rot.pending = false; flashPivot();
+    }
+  }
   const h = renderer.domElement.clientHeight || 1;
   const dx = e.clientX - rot.x, dy = e.clientY - rot.y;
   rot.x = e.clientX; rot.y = e.clientY;
   if (dx || dy) orbitAround(pivotPoint, -2 * Math.PI * dx / h, 2 * Math.PI * dy / h);
 });
 const endPointer = (e) => {
+  const start = e.pointerType === 'touch' && touchStarts.get(e.pointerId);
+  if (start) {
+    // Lost capture after a completed up is not cancellation. Label forwarding
+    // also sends cancel after the native up has reached this capture listener.
+    if (e.type !== 'pointerup' && !start.ended) { start.cancelled = true; lastTapAt = 0; }
+    start.ended = true;
+  }
   activePointers.delete(e.pointerId);
   touchIds.delete(e.pointerId);
   if (rot && rot.id === e.pointerId) rot = null;
@@ -10925,6 +11046,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   // бы в деталь позади неё (тот же порядок событий, что уже гасит вращение
   // камеры выше по файлу).
   if (!controls.enabled) return;
+  if (!RH.touchGestureAllowsSelection(e)) return;
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
   const hit = pickHit(e.clientX, e.clientY); // null on empty space -- still a select
   emit('select', { part: hit && meshToPart.get(hit.object), ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey, pointerType: e.pointerType });
@@ -10939,6 +11061,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   }
 });
 renderer.domElement.addEventListener('dblclick', (e) => {
+  if (lastNavigationPointerType === 'touch') return; // touch double-tap is handled above
   fireDblSelect(pickHit(e.clientX, e.clientY));
 });
 

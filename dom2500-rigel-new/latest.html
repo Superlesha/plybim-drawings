@@ -3172,7 +3172,7 @@ RH.register('labels', function (ctx) {
   }
 
   function rectFor(it, dy) {
-    return { left: it.pos.x - it.w / 2, right: it.pos.x + it.w / 2, top: it.pos.y + dy - it.h / 2, bottom: it.pos.y + dy + it.h / 2 };
+    return { left: it.pos.x + (it.dx || 0) - it.w / 2, right: it.pos.x + (it.dx || 0) + it.w / 2, top: it.pos.y - 26 + dy - it.h / 2, bottom: it.pos.y - 26 + dy + it.h / 2 };
   }
   // T18b: зазор GAP -- вплотную поставленные карточки иначе сходятся от
   // субпиксельного хвоста камеры (DRIFT_PX ниже).
@@ -3241,7 +3241,7 @@ RH.register('labels', function (ctx) {
     let hiddenByLayout = 0;
     for (const it of items) {
       let ok = tryPlace(it, 0, placed, safe), dy = 0;
-      for (let s = SHIFT_STEP; s <= SHIFT_MAX && !ok; s += SHIFT_STEP) {
+      for (let s = SHIFT_STEP; s <= (allMode ? Math.max(SHIFT_MAX, 96) : SHIFT_MAX) && !ok; s += SHIFT_STEP) {
         if (tryPlace(it, -s, placed, safe)) { ok = true; dy = -s; }
         else if (tryPlace(it, s, placed, safe)) { ok = true; dy = s; }
       }
@@ -3323,16 +3323,65 @@ RH.register('labels', function (ctx) {
 
     let items;
     if (allMode) {
-      // Each visible coded part is represented by exactly one callout. Merge
-      // only labels that cannot fit, keeping other close-up codes separate.
-      const scale = Number(css.domElement.style.getPropertyValue('--rh-label-scale')) || 1;
-      items = RH.groupBuilderLabels(layoutVisible, 145 * scale, 62 * scale, safe);
+      // A builder reads a physical code, not a count of unrelated codes.
+      // Merge only nearby instances of the SAME code. Every eligible member
+      // remains represented; geometric occlusion/stage policy is unchanged.
+      items = clusterVisible(layoutVisible);
+      for (const item of items) {
+        item.displayCode = item.code;
+        item.codeCount = 1;
+        item.nText = item.members.length > 1 ? '×' + item.members.length : '';
+      }
+      // Resolve crowding by joining only equal physical codes. Prefer the
+      // nearest existing callout, keep its anchor stable, and never drop a code.
       for (let pass = 0; pass < 8; pass++) {
-        hiddenByLayoutCount = placeItems(items, safe, true);
-        if (!hiddenByLayoutCount) break;
-        const merged = RH.mergeUnplacedBuilderLabels(items, safe);
-        if (merged === items) break;
-        items = merged;
+        const counts = new Map();
+        for (const item of items) counts.set(item.code, (counts.get(item.code) || 0) + 1);
+        // Place rare/unique codes before repeat instances. Otherwise repeated
+        // ABB callouts occupy the only space available to a unique T1-FME.
+        for (const item of items) item.priority = 1e12 / counts.get(item.code) + item.rep._priority;
+        if (!placeItems(items, safe, true)) break;
+        const consumed = new Set(), combined = [];
+        for (const item of items) {
+          if (item.dy !== null || consumed.has(item)) continue;
+          let pair = null;
+          for (const other of items) {
+            if (other === item || consumed.has(other) || other.code !== item.code) continue;
+            const distance = Math.hypot(item.pos.x - other.pos.x, item.pos.y - other.pos.y);
+            if (!pair || distance < pair.distance) pair = { other, distance };
+          }
+          if (!pair) continue;
+          const keep = pair.other.priority >= item.priority ? pair.other : item;
+          combined.push(RH.builderLabelGroup([...item.members, ...pair.other.members], safe, keep.rep));
+          consumed.add(item); consumed.add(pair.other);
+        }
+        if (!consumed.size) break;
+        items = items.filter(it => !consumed.has(it)).concat(combined);
+      }
+      placeItems(items, safe, true);
+      // The vertical lane may be occupied by several different codes. Put
+      // remaining boxes into the nearest free screen space, retaining an
+      // explicit leader to their original surface anchor. Never erase a code.
+      const occupied = items.filter(it => it.dy !== null).map(it => rectFor(it, it.dy));
+      hiddenByLayoutCount = 0;
+      for (const item of items) {
+        if (item.dy !== null) continue;
+        const candidates = [];
+        const bounds = safe || { l: 0, t: 0, r: W, b: H };
+        for (let y = bounds.t + item.h / 2 + GAP; y <= bounds.b - item.h / 2 - GAP; y += 12) {
+          for (let x = bounds.l + item.w / 2 + GAP; x <= bounds.r - item.w / 2 - GAP; x += 12) {
+            const dx = x - item.pos.x, dy = y - item.pos.y + 26;
+            candidates.push({ dx, dy, distance: dx * dx + dy * dy });
+          }
+        }
+        candidates.sort((a,b) => a.distance - b.distance);
+        for (const candidate of candidates) {
+          item.dx = candidate.dx;
+          if (tryPlace(item, candidate.dy, occupied, bounds)) {
+            item.dy = candidate.dy; occupied.push(rectFor(item, item.dy)); break;
+          }
+        }
+        if (item.dy === null) { item.dx = 0; item.dy = 0; hiddenByLayoutCount++; }
       }
     } else {
       items = clusterVisible(visible);
@@ -3373,7 +3422,23 @@ RH.register('labels', function (ctx) {
       const it = shownReps.get(e);
       const show = it !== undefined;
       if (show) {
-        e.co.position.copy(worldPositionForOffset(e.anchorPoint, it.dy, H));
+        // Keep the CSS2D anchor on the actual visible surface. Only the
+        // box moves in screen space; the leader always ends at the anchor.
+        e.co.position.copy(e.anchorPoint);
+        e.el.style.marginTop = (-26 + it.dy) + 'px';
+        e.el.style.marginLeft = (it.dx || 0) + 'px';
+        const leader = e.el.firstElementChild;
+        const vx = -(it.dx || 0), vy = 26 - it.dy;
+        const outside = Math.abs(vx) > it.w / 2 || Math.abs(vy) > it.h / 2;
+        const t = outside ? Math.min(
+          Math.abs(vx) ? it.w / (2 * Math.abs(vx)) : Infinity,
+          Math.abs(vy) ? it.h / (2 * Math.abs(vy)) : Infinity) : 1;
+        leader.style.display = outside ? '' : 'none';
+        leader.style.left = (it.w / 2 + vx * t - 1) + 'px';
+        leader.style.top = (it.h / 2 + vy * t - 1) + 'px';
+        leader.style.height = Math.hypot(vx * (1-t), vy * (1-t)) + 'px';
+        leader.style.transformOrigin = 'top center';
+        leader.style.transform = 'rotate(' + (-Math.atan2(vx, vy)) + 'rad)';
         const displayCode = it.displayCode || it.code;
         if (e.renderCode !== displayCode) { e.renderCode = displayCode; e.codeEl.textContent = displayCode; }
         const description = it.members.length > 1 ?
